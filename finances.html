@@ -7,7 +7,7 @@
   formulaires, iframes). Seul le script ci-dessous, identifié par son empreinte SHA-256, peut s'exécuter.
   Après toute modification du script, relancer : node outils/sceller.js
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-jM+cbNIARBNxBbI0lsero1bGfyWXR2PgeRJE07lqgT4='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-sAg0Wxt5eTc6NC5UCHQ96lZa+vqxPIXgF0NIZJ4GUEQ='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Finances perso</title>
@@ -121,6 +121,27 @@ details summary{cursor:pointer;color:var(--accent);margin-top:8px}
 .donut-legend span.n{margin-left:auto;font-variant-numeric:tabular-nums}
 .donut-legend span.p{width:52px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 
+/* Mode consultation (lecture seule) */
+body.readonly :is([data-act=txAdd],[data-act=txEdit],[data-act=txDel],[data-act=invAdd],[data-act=invEdit],[data-act=invDel],[data-act=invTrade],label:has(>[data-chg=csvFile])){display:none!important}
+body.readonly :is([data-chg=txSetCat],[data-chg=budget],[data-chg=invPrice]){pointer-events:none;opacity:.8;appearance:none;-webkit-appearance:none;border-color:transparent;background:none}
+
+/* Petits écrans */
+@media (max-width:640px){
+  .hbar{gap:4px;padding:6px 10px}
+  .brand,#status{display:none}
+  nav{order:3;width:100%;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+  nav button{white-space:nowrap;padding:8px 10px}
+  main{padding:12px}
+  .card{padding:12px}
+  .kpis{grid-template-columns:1fr 1fr;gap:8px}
+  .kpi .v{font-size:17px}
+  .sim-form{grid-template-columns:1fr}
+  .tbl{font-size:13px}
+  .tbl th,.tbl td{padding:6px 5px}
+  .donut-wrap svg{width:140px;margin:0 auto}
+  #toasts{left:16px;right:16px}
+}
+
 /* Mode discret */
 body.discret .amt{filter:blur(7px);transition:filter .15s}
 body.discret .amt:hover{filter:none}
@@ -142,7 +163,7 @@ ul.sec{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 <div id="lock" class="lock">
   <div class="lock-card">
     <h1>🔒 Finances perso</h1>
-    <p class="muted" style="margin-top:0">Coffre chiffré, 100 % local. Aucune donnée ne quitte cet ordinateur.</p>
+    <p class="muted" style="margin-top:0">Coffre chiffré. L’application ne se connecte à aucun serveur : vos données ne sont lisibles qu’avec votre mot de passe.</p>
     <div id="lockBody"></div>
   </div>
 </div>
@@ -304,9 +325,10 @@ function migrate(d) {
 // ---------- Persistance ----------
 let rev = 0, savedRev = 0, saveTimer = null, saveChain = Promise.resolve();
 function setStatus(t) { const el = $('#status'); if (el) el.textContent = t; }
-function save() { rev++; setStatus('Modifications…'); clearTimeout(saveTimer); saveTimer = setTimeout(persistNow, 250); }
+function save() { if (READONLY) return; rev++;setStatus('Modifications…'); clearTimeout(saveTimer); saveTimer = setTimeout(persistNow, 250); }
 function persistNow() {
   clearTimeout(saveTimer);
+  if (READONLY) return saveChain; // consultation : jamais d'écriture
   const r = rev;
   saveChain = saveChain.then(async () => {
     if (!session || wiped || r < savedRev) return;
@@ -355,7 +377,9 @@ async function writeVault(text) {
   else localStorage.setItem(VAULT_KEY, text);
 }
 const pickSaveFile = (name = 'mes-finances.fvault') => showSaveFilePicker({ suggestedName: name, types: FILE_TYPES, id: 'finances' });
-const storeLabel = () => store.type === 'file' ? store.handle.name : 'stockage du navigateur';
+const storeLabel = () => READONLY ? viewFile.name + ' · lecture seule' : store.type === 'file' ? store.handle.name : 'stockage du navigateur';
+// Mode consultation (smartphone) : fichier lu une fois, déchiffré en mémoire, jamais réécrit.
+let READONLY = false, viewFile = null; // { name, modified, vault }
 
 // ---------- Verrouillage ----------
 let lastActivity = Date.now();
@@ -376,7 +400,7 @@ const unlockForm = () => `
   </form>`;
 const createForm = () => `
   <p>Choisissez un <b>mot de passe maître</b> (12 caractères minimum). <b>Il est impossible à récupérer</b> : sans lui, les données sont perdues.</p>
-  ${FS_OK ? '<p class="muted small">Vous choisirez ensuite où enregistrer le fichier de données. Conseil : un dossier <b>hors de OneDrive / Dropbox / iCloud</b> pour qu’il ne quitte jamais votre ordinateur.</p>' : ''}
+  ${FS_OK ? '<p class="muted small">Vous choisirez ensuite où enregistrer le fichier de données. Pour le consulter aussi sur votre téléphone, placez-le dans votre <b>dossier OneDrive</b> (il y reste chiffré), mais pas dans le dossier du code de l’application.</p>' : ''}
   <form data-form="create" class="stack" autocomplete="off">
     <label>Mot de passe maître<input type="password" name="pw" minlength="12" required autocomplete="new-password"></label>
     <label>Confirmation<input type="password" name="pw2" minlength="12" required autocomplete="new-password"></label>
@@ -408,9 +432,21 @@ async function showLock(mode) {
         <button class="btn primary" type="button" data-act="newVault">Créer un nouveau fichier de données</button>
         <button class="btn" type="button" data-act="openFile">Ouvrir un fichier de données existant</button>
       </div>`;
+  } else if (viewFile) {
+    lb.innerHTML = `<p>Fichier : <b>${esc(viewFile.name)}</b><br><span class="muted small">Dernier enregistrement depuis le PC : ${esc(new Date(viewFile.modified).toLocaleString('fr-FR'))}</span></p>
+      <form data-form="unlockView" class="stack" autocomplete="off">
+        <label>Mot de passe maître<input type="password" name="pw" required autocomplete="current-password"></label>
+        <button class="btn primary" type="submit">Consulter</button>
+        <p class="err" id="lockErr"></p>
+      </form>
+      <div class="sep"></div><button class="btn" type="button" data-act="lockHome">← Choisir un autre fichier</button>`;
   } else {
-    lb.innerHTML = createForm() + `<div class="sep">— ou —</div>
-      <label class="btn">Restaurer une sauvegarde (.fvault)<input type="file" accept=".fvault,.json" data-chg="restoreFile" data-mode="lock" hidden></label>`;
+    // Navigateur sans écriture de fichier (smartphone…) : consultation seule, le PC reste maître.
+    lb.innerHTML = `
+      <p><b>📱 Mode consultation.</b> Ouvrez votre fichier de données depuis OneDrive (via l’application Fichiers / OneDrive du téléphone).</p>
+      <p class="muted small">Lecture seule : les modifications se font sur le PC. Rien n’est enregistré sur cet appareil.</p>
+      <label class="btn primary">Ouvrir mon fichier de données (.fvault)<input type="file" data-chg="viewFile" hidden></label>
+      <p class="err" id="lockErr"></p>`;
   }
   const f = $('#lockBody input[type=password]'); f && f.focus();
 }
@@ -589,8 +625,9 @@ function renderDash() {
   const snaps = S.snapshots.slice(-60);
   $('#tab-dash').innerHTML = `
     <div class="toolbar"><h2>Tableau de bord</h2><span class="spacer"></span>${monthSelect(m)}</div>
-    ${needBackup ? `<div class="banner">💾 <span>${lb ? 'Dernière sauvegarde le ' + fmtDate(lb) : 'Aucune sauvegarde encore'} — exportez une copie chiffrée pour ne rien perdre si le navigateur est réinitialisé.</span><button class="btn" data-act="exportVault">Exporter maintenant</button></div>` : ''}
-    ${!S.transactions.length && !S.holdings.length ? `<div class="banner">👋 <span>Coffre vide. Importez un relevé CSV, saisissez vos placements, ou explorez avec des données fictives.</span><button class="btn" data-act="demo">Charger une démo</button></div>` : ''}
+    ${READONLY ? `<div class="banner">📱 <span>Consultation en lecture seule — données enregistrées depuis le PC le ${esc(new Date(viewFile.modified).toLocaleString('fr-FR'))}.</span></div>` : ''}
+    ${needBackup && !READONLY ? `<div class="banner">💾 <span>${lb ? 'Dernière sauvegarde le ' + fmtDate(lb) : 'Aucune sauvegarde encore'} — exportez une copie chiffrée pour ne rien perdre si le navigateur est réinitialisé.</span><button class="btn" data-act="exportVault">Exporter maintenant</button></div>` : ''}
+    ${!S.transactions.length && !S.holdings.length && !READONLY ? `<div class="banner">👋 <span>Coffre vide. Importez un relevé CSV, saisissez vos placements, ou explorez avec des données fictives.</span><button class="btn" data-act="demo">Charger une démo</button></div>` : ''}
     <div class="kpis">
       ${kpi('Patrimoine suivi', money(nw, false), S.holdings.length ? `${signMoney(nw - cost, false)} de plus-values latentes` : 'Ajoutez vos placements')}
       ${kpi('Revenus · ' + monthLabel(m), money(st.inc))}
@@ -987,6 +1024,18 @@ function renderProjResults() {
 // Paramètres
 // =====================================================================
 function renderSettings() {
+  if (READONLY) {
+    $('#tab-set').innerHTML = `<div class="toolbar"><h2>Paramètres</h2></div>
+      <div class="card"><h3>📱 Mode consultation</h3>
+        <p style="margin-top:0">Fichier ouvert : <b>${esc(viewFile.name)}</b> (lecture seule).</p>
+        <ul class="sec small">
+          <li>Le fichier a été lu depuis OneDrive et déchiffré en mémoire : <b>rien n’est enregistré sur cet appareil</b>.</li>
+          <li>Les catégories, règles, budgets, opérations et placements se modifient sur le PC.</li>
+          <li>Verrouiller (🔒) efface les données de la mémoire. Verrouillage automatique après ${S.settings.lockMinutes} min d’inactivité.</li>
+        </ul>
+      </div>`;
+    return;
+  }
   const lb = S.settings.lastBackup;
   $('#tab-set').innerHTML = `
     <div class="toolbar"><h2>Paramètres</h2></div>
@@ -1013,7 +1062,7 @@ function renderSettings() {
         <p style="margin-top:0">${store.type === 'file' ? `Fichier local chiffré : <b>${esc(store.handle.name)}</b>` : 'Stockage interne de ce navigateur'}</p>
         ${FS_OK ? `<button class="btn" data-act="moveToFile">${store.type === 'file' ? 'Enregistrer sous un autre fichier…' : 'Déplacer vers un fichier local…'}</button>`
           : '<p class="muted small">Ce navigateur ne permet pas l’écriture directe dans un fichier (utilisez Chrome ou Edge) : les données restent dans le navigateur.</p>'}
-        <p class="muted small">Pour qu’aucune copie, même chiffrée, ne transite par un serveur, placez le fichier <b>hors de OneDrive, Dropbox ou iCloud</b> (par ex. <code>C:\\Users\\vous\\FinancesPerso\\</code>). Ne le mettez jamais dans le dossier du dépôt GitHub.</p>
+        <p class="muted small">Placez le fichier dans votre <b>dossier OneDrive</b> pour le consulter depuis votre téléphone (lecture seule) : il y est stocké chiffré, Microsoft ne peut pas le lire. Ne modifiez les données que depuis <b>ce PC</b> pour éviter les conflits de synchronisation, et ne mettez jamais le fichier dans le dossier du dépôt GitHub.</p>
         <h3 style="margin-top:18px">💾 Sauvegardes</h3>
         <p class="muted small" style="margin-top:0">${store.type === 'file' ? 'Une copie de secours protège contre la perte ou la corruption du disque.' : 'Vider les données de navigation efface le coffre.'} Exportez régulièrement une sauvegarde <b>chiffrée</b> (.fvault, illisible sans votre mot de passe), par exemple sur une clé USB.</p>
         <p>Dernière sauvegarde : <b>${lb ? fmtDate(lb) : 'jamais'}</b></p>
@@ -1183,7 +1232,7 @@ const ACT = {
     location.reload();
   },
   newVault: () => showLock('create'),
-  lockHome: () => showLock(),
+  lockHome: () => { viewFile = null; showLock(); },
   openFile: async () => {
     let h;
     try { [h] = await showOpenFilePicker({ types: FILE_TYPES, id: 'finances' }); } catch { return; }
@@ -1219,6 +1268,13 @@ const CHG = {
   catKind: el => { catById(el.dataset.id).kind = el.value; save(); },
   csvFile: async el => { const f = el.files[0]; el.value = ''; if (!f) return; try { startCsvImport(parseCSV(await readFileText(f))); } catch (e) { toast('Lecture impossible : ' + e.message, 'err'); } },
   csvPreview: el => csvPreview(el),
+  viewFile: async el => {
+    const f = el.files[0]; el.value = ''; if (!f) return;
+    let v; try { v = JSON.parse(await f.text()); } catch { v = null; }
+    if (!isVault(v)) { $('#lockErr').textContent = 'Ce fichier n’est pas un fichier de données Finances perso (.fvault).'; return; }
+    viewFile = { name: f.name, modified: f.lastModified, vault: v };
+    showLock();
+  },
   restoreFile: async el => { const f = el.files[0], mode = el.dataset.mode; el.value = ''; if (f) askBackupPassword(await f.text(), mode); },
 };
 
@@ -1233,6 +1289,21 @@ const INP = {
 };
 
 const SUBMIT = {
+  async unlockView(f) {
+    const btn = $('button', f), err = $('#lockErr');
+    btn.disabled = true; btn.textContent = 'Déchiffrement…'; err.textContent = '';
+    try {
+      const { sess, data } = await decryptVault(viewFile.vault, f.elements.pw.value);
+      READONLY = true; session = sess; S = migrate(data);
+      delete viewFile.vault; // le texte chiffré n'est plus utile
+      document.body.classList.add('readonly');
+      startApp();
+    } catch {
+      err.textContent = 'Mot de passe incorrect (ou fichier endommagé).';
+      f.elements.pw.value = ''; f.elements.pw.focus();
+      btn.disabled = false; btn.textContent = 'Consulter';
+    }
+  },
   async unlock(f) {
     const btn = $('button', f), err = $('#lockErr');
     btn.disabled = true; btn.textContent = 'Déchiffrement…'; err.textContent = '';
@@ -1349,14 +1420,29 @@ const SUBMIT = {
   },
 };
 
+// En consultation, seules la navigation et les simulations (non enregistrées) sont permises.
+const RO_ACT = new Set(['tab', 'lock', 'discret', 'closeModal', 'lockHome', 'simUseNW', 'simUseAvg', 'simPreset']);
+const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'viewFile']);
+const roBlocked = () => { toast('Lecture seule : les modifications se font sur le PC.'); };
 document.addEventListener('click', e => {
   if (e.target.id === 'modal') { closeModal(); return; }
   const el = e.target.closest('[data-act]');
-  if (el && ACT[el.dataset.act]) ACT[el.dataset.act](el, e);
+  if (!el || !ACT[el.dataset.act]) return;
+  if (READONLY && !RO_ACT.has(el.dataset.act)) { roBlocked(); return; }
+  ACT[el.dataset.act](el, e);
 });
-document.addEventListener('change', e => { const el = e.target.closest('[data-chg]'); if (el && CHG[el.dataset.chg]) CHG[el.dataset.chg](el, e); });
+document.addEventListener('change', e => {
+  const el = e.target.closest('[data-chg]');
+  if (!el || !CHG[el.dataset.chg]) return;
+  if (READONLY && !RO_CHG.has(el.dataset.chg)) { roBlocked(); refresh(); return; }
+  CHG[el.dataset.chg](el, e);
+});
 document.addEventListener('input', e => { const el = e.target.closest('[data-inp]'); if (el && INP[el.dataset.inp]) INP[el.dataset.inp](el, e); });
-document.addEventListener('submit', e => { e.preventDefault(); const f = e.target; if (SUBMIT[f.dataset.form]) SUBMIT[f.dataset.form](f, e); });
+document.addEventListener('submit', e => {
+  e.preventDefault(); const f = e.target;
+  if (READONLY) { roBlocked(); return; }
+  if (SUBMIT[f.dataset.form]) SUBMIT[f.dataset.form](f, e);
+});
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
 
 showLock();
