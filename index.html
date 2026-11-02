@@ -7,7 +7,7 @@
   formulaires, iframes). Seul le script ci-dessous, identifié par son empreinte SHA-256, peut s'exécuter.
   Après toute modification du script, relancer : node outils/sceller.js
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-qdnHuUX+nYuzl0XZ4S6gq2zc+q2naTZroPBegEeWoTk='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-kGOeveVnZMZ2SGgJk3H4ejf2c0LEEyhBR8UIqc55G9o='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Valtaris</title>
@@ -291,7 +291,7 @@ async function decryptVault(vault, pw) {
 let S = null;        // données déchiffrées (en mémoire uniquement)
 let session = null;  // { key (non exportable), salt, iter }
 let wiped = false;
-const UI = { tab: 'dash', month: today().slice(0, 7), txMonth: '', txCat: '', txAcct: '', txSearch: '', txRaw: false };
+const UI = { tab: 'dash', month: today().slice(0, 7), txMonth: '', txCat: '', txAcct: '', txSearch: '', txRaw: false, invAcct: '' };
 
 const DEFAULT_CATS = [
   ['salaire', 'Salaire', 'revenu', '#22b07d'], ['revenus', 'Autres revenus', 'revenu', '#7cc49a'],
@@ -331,11 +331,12 @@ const ACCOUNT_TYPES = [
   ['Épargne réglementée', ['Livret A', 'LDDS', 'LEP', 'Livret Jeune', 'CEL', 'PEL']],
   ['Épargne bancaire', ['Livret d’épargne (fiscalisé)', 'Compte à terme']],
   ['Placements', ['PEA', 'PEA-PME', 'CTO', 'Assurance-vie', 'PER', 'Épargne salariale (PEE / PERCOL)', 'Crypto-actifs']],
-  ['Autres', ['Crédit / prêt', 'Autre']],
+  ['Autres', ['Crédit / prêt', 'Immobilier', 'Autre']],
 ];
 const typeFamily = type => (ACCOUNT_TYPES.find(([, ts]) => ts.includes(type)) || ['Autres'])[0];
 const newAccount = (name, extra = {}) => ({ id: uid(), name, bank: '', type: 'Compte courant', note: '', ...extra });
-const ENVELOPES = ['PEA', 'CTO', 'Assurance-vie', 'PER', 'Livret', 'Compte courant', 'Crypto', 'Immobilier', 'Autre'];
+// Anciennes « enveloppes » des placements → type de compte (migration des coffres d'avant l'onglet Comptes)
+const ENVELOPE_TYPE = { PEA: 'PEA', CTO: 'CTO', 'Assurance-vie': 'Assurance-vie', PER: 'PER', Livret: 'Livret A', 'Compte courant': 'Compte courant', Crypto: 'Crypto-actifs', Immobilier: 'Immobilier', Autre: 'Autre' };
 const CLASSES = ['Actions', 'Obligations', 'Fonds euros', 'Monétaire / Livrets', 'Immobilier', 'Crypto', 'Liquidités', 'Autre'];
 const PALETTE = ['#4f7cff', '#22b07d', '#f5a524', '#e5484d', '#8e4ec6', '#12a5b8', '#d6409f', '#7c8a2e', '#f76b15', '#5b6b7f'];
 
@@ -378,6 +379,16 @@ function migrate(d) {
   });
   d.pointages = d.pointages.filter(p => p && ISO.test(p.date) && Number.isFinite(p.balance));
   d.pointages.forEach(p => { if (!hasAcct(p.acct)) p.acct = acct0; });
+  // chaque placement est rattaché à un compte ; l'ancienne « enveloppe » devient un compte du type correspondant
+  d.holdings.forEach(h => {
+    if (!hasAcct(h.acct)) {
+      const type = ENVELOPE_TYPE[h.envelope] || 'Autre';
+      let a = d.accounts.find(x => x.type === type);
+      if (!a) { a = newAccount(h.envelope || 'Autre', { type, note: 'Créé automatiquement à partir de vos placements : complétez la banque.' }); d.accounts.push(a); }
+      h.acct = a.id;
+    }
+    delete h.envelope;
+  });
   return d;
 }
 
@@ -571,6 +582,13 @@ const catLabel = (cat, sub) => esc(catById(cat).name) + (sub ? ' › ' + esc(sub
 const acctName = id => (S.accounts.find(a => a.id === id) || { name: '?' }).name;
 const acctOptions = sel => S.accounts.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}</option>`).join('');
 const defaultAcct = () => UI.txAcct || S.accounts[0].id;
+const acctOf = id => S.accounts.find(a => a.id === id) || { name: '?', bank: '', type: 'Autre' };
+// liste des comptes groupée par famille (placements en tête), pour rattacher un placement
+function acctOptionsGrouped(sel) {
+  const fams = ['Placements', ...ACCOUNT_TYPES.map(([f]) => f).filter(f => f !== 'Placements')];
+  return fams.map(f => { const as = S.accounts.filter(a => typeFamily(a.type) === f);
+    return as.length ? `<optgroup label="${esc(f)}">${as.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.bank ? ' — ' + esc(a.bank) : ''}</option>`).join('')}</optgroup>` : ''; }).join('');
+}
 const findPt = id => S.pointages.find(p => p.id === id);
 // Rapprochement : entre deux pointages d'un compte, la somme des opérations (selon leur date de pointage)
 // doit égaler la variation du solde. Le solde d'un pointage inclut les opérations pointées le même jour.
@@ -1015,8 +1033,11 @@ function csvPreview(f) {
 function renderAccounts() {
   const rows = S.accounts.map(a => {
     const r = reconcile(a.id);
-    return { a, n: S.transactions.filter(t => t.acct === a.id).length, last: r.last, estimate: r.estimate, gaps: r.periods.filter(p => p.gap !== 0).length };
+    const hs = S.holdings.filter(h => h.acct === a.id);
+    return { a, n: S.transactions.filter(t => t.acct === a.id).length, last: r.last, estimate: r.estimate, gaps: r.periods.filter(p => p.gap !== 0).length,
+      nh: hs.length, inv: hs.reduce((s, h) => s + hValue(h), 0) };
   });
+  const invTotal = rows.reduce((s, r) => s + r.inv, 0);
   const banks = new Set(S.accounts.map(a => a.bank.trim()).filter(Boolean));
   const known = rows.filter(r => r.last), total = known.reduce((s, r) => s + r.estimate, 0);
   const families = ACCOUNT_TYPES.map(([f]) => f).filter(f => rows.some(r => typeFamily(r.a.type) === f));
@@ -1027,17 +1048,19 @@ function renderAccounts() {
     <div class="kpis">
       ${kpi('Comptes', String(S.accounts.length), `${banks.size} banque(s) ou institut(s)`)}
       ${kpi('Solde estimé des comptes pointés', money(total, false), `${known.length} compte(s) avec au moins un pointage`)}
+      ${kpi('Valeur des placements', money(invTotal, false), `${S.holdings.length} placement(s) rattaché(s)`)}
     </div>
     ${families.map(f => `<div class="card"><h3>${esc(f)}</h3>
-      <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Banque / institut</th><th>Type</th><th class="num">Opérations</th><th>Dernier pointage</th><th class="num">Solde estimé</th><th></th></tr></thead><tbody>
-      ${rows.filter(r => typeFamily(r.a.type) === f).map(({ a, n, last, estimate, gaps }) => `<tr>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Banque / institut</th><th>Type</th><th class="num">Opérations</th><th>Dernier pointage</th><th class="num">Solde estimé</th><th class="num">Placements</th><th></th></tr></thead><tbody>
+      ${rows.filter(r => typeFamily(r.a.type) === f).map(({ a, n, last, estimate, gaps, nh, inv }) => `<tr>
         <td style="min-width:150px"><b>${esc(a.name)}</b>${a.note ? `<div class="muted small">${esc(a.note)}</div>` : ''}</td>
         <td>${a.bank ? esc(a.bank) : '<span class="muted">—</span>'}</td>
         <td class="nowrap">${esc(a.type)}</td>
         <td class="num">${n}</td>
         <td class="nowrap">${last ? `${fmtDate(last.date)} · ${money(last.balance)}` : '<span class="muted">aucun</span>'}${gaps ? ` <span class="neg small" title="Périodes dont le rapprochement présente un écart">⚠ ${gaps} écart(s)</span>` : ''}</td>
         <td class="num">${last ? money(estimate) : '<span class="muted">—</span>'}</td>
-        <td class="actions"><button class="icon" title="Voir les opérations" data-act="acctShowTx" data-id="${esc(a.id)}">☰</button><button class="icon" title="Modifier" data-act="acctEdit" data-id="${esc(a.id)}">✎</button><button class="icon" title="Supprimer" data-act="acctDel" data-id="${esc(a.id)}">✕</button></td></tr>`).join('')}
+        <td class="num">${nh ? `${money(inv)} <span class="muted small">(${nh})</span>` : '<span class="muted">—</span>'}</td>
+        <td class="actions">${nh ? `<button class="icon" title="Voir les placements" data-act="acctShowInv" data-id="${esc(a.id)}">📈</button>` : ''}<button class="icon" title="Voir les opérations" data-act="acctShowTx" data-id="${esc(a.id)}">☰</button><button class="icon" title="Modifier" data-act="acctEdit" data-id="${esc(a.id)}">✎</button><button class="icon" title="Supprimer" data-act="acctDel" data-id="${esc(a.id)}">✕</button></td></tr>`).join('')}
       </tbody></table></div></div>`).join('')}
     <p class="muted small">Le solde estimé part du dernier pointage de solde du compte et ajoute les opérations relevées depuis. Saisissez les pointages depuis l’onglet Dépenses.</p>`;
 }
@@ -1063,26 +1086,31 @@ function acctModal(a) {
 // Investissements
 // =====================================================================
 function renderInv() {
-  const nw = netWorth(), cost = totalCost(), gain = nw - cost;
-  const realized = S.holdings.reduce((s, h) => s + (h.realized || 0), 0);
-  const group = key => {
-    const m = {}; S.holdings.forEach(h => { m[h[key]] = (m[h[key]] || 0) + hValue(h); });
+  if (UI.invAcct && !S.accounts.some(a => a.id === UI.invAcct)) UI.invAcct = '';
+  const all = UI.invAcct ? S.holdings.filter(h => h.acct === UI.invAcct) : S.holdings;
+  const nw = all.reduce((s, h) => s + hValue(h), 0), cost = all.reduce((s, h) => s + hCost(h), 0), gain = nw - cost;
+  const realized = all.reduce((s, h) => s + (h.realized || 0), 0);
+  const withInv = S.accounts.filter(a => S.holdings.some(h => h.acct === a.id));
+  const group = keyOf => {
+    const m = {}; all.forEach(h => { const k = keyOf(h); m[k] = (m[k] || 0) + hValue(h); });
     return Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: PALETTE[i % PALETTE.length] }));
   };
-  const hs = [...S.holdings].sort((a, b) => hValue(b) - hValue(a));
+  const hs = [...all].sort((a, b) => hValue(b) - hValue(a));
   const snaps = S.snapshots.slice(-60);
   $('#tab-inv').innerHTML = `
-    <div class="toolbar"><h2>Investissements & épargne</h2><span class="spacer"></span><button class="btn primary" data-act="invAdd">+ Ajouter un placement</button></div>
+    <div class="toolbar"><h2>Investissements & épargne</h2><span class="spacer"></span>
+      ${withInv.length > 1 || UI.invAcct ? `<select data-chg="invAcct"><option value="">Tous les comptes</option>${withInv.map(a => `<option value="${esc(a.id)}"${a.id === UI.invAcct ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}
+      <button class="btn primary" data-act="invAdd">+ Ajouter un placement</button></div>
     <div class="kpis">
       ${kpi('Valeur totale', money(nw, false))}
       ${kpi('Montant investi', money(cost, false), 'quantité × prix de revient')}
       ${kpi('Plus-values latentes', signMoney(gain, false), cost > 0 ? pct(gain / cost) : '')}
       ${kpi('Plus-values réalisées', signMoney(realized, false), 'cumul des ventes')}
     </div>
-    <div class="card">${hs.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Placement</th><th>Enveloppe</th><th>Classe</th><th class="num">Quantité</th><th class="num">PRU</th><th class="num">Cours actuel</th><th class="num">Valeur</th><th class="num">+/- latente</th><th class="num">Poids</th><th></th></tr></thead><tbody>
+    <div class="card">${hs.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Placement</th><th>Compte</th><th>Classe</th><th class="num">Quantité</th><th class="num">PRU</th><th class="num">Cours actuel</th><th class="num">Valeur</th><th class="num">+/- latente</th><th class="num">Poids</th><th></th></tr></thead><tbody>
       ${hs.map(h => { const v = hValue(h), g = v - hCost(h); return `<tr>
         <td><b>${esc(h.name)}</b>${h.ticker ? ` <span class="muted small">${esc(h.ticker)}</span>` : ''}<div class="muted small">MAJ ${h.updated ? fmtDate(h.updated) : '—'}</div></td>
-        <td>${esc(h.envelope)}</td><td>${esc(h.cls)}</td>
+        <td>${esc(acctOf(h.acct).name)}<div class="muted small">${esc([acctOf(h.acct).type, acctOf(h.acct).bank].filter(Boolean).join(' · '))}</div></td><td>${esc(h.cls)}</td>
         <td class="num">${esc(NUM.format(h.qty))}</td><td class="num">${money(h.pru)}</td>
         <td class="num"><input class="inline-num" type="number" step="any" min="0" value="${h.price}" data-chg="invPrice" data-id="${h.id}" title="Mettre à jour le cours"></td>
         <td class="num"><b>${money(v)}</b></td>
@@ -1093,22 +1121,28 @@ function renderInv() {
       <p class="muted small" style="margin-bottom:0">Les cours sont saisis à la main (aucune connexion à des services externes, par conception). Astuce : pour un livret ou un fonds euros, quantité = 1, PRU = total versé, cours = solde actuel.</p>
     </div>
     <div class="grid2">
-      <div class="card"><h3>Répartition par classe d’actifs</h3>${hs.length ? donut(group('cls')) : empty('—')}</div>
-      <div class="card"><h3>Répartition par enveloppe</h3>${hs.length ? donut(group('envelope')) : empty('—')}</div>
+      <div class="card"><h3>Répartition par classe d’actifs</h3>${hs.length ? donut(group(h => h.cls)) : empty('—')}</div>
+      <div class="card"><h3>Répartition par type de compte</h3>${hs.length ? donut(group(h => acctOf(h.acct).type)) : empty('—')}</div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Répartition par compte</h3>${hs.length ? donut(group(h => acctOf(h.acct).name)) : empty('—')}</div>
+      <div class="card"><h3>Répartition par banque / institut</h3>${hs.length ? donut(group(h => acctOf(h.acct).bank || 'Non renseigné')) : empty('—')}</div>
     </div>
     <div class="card" style="margin-top:16px"><h3>Historique de la valeur</h3>${snaps.length > 1 ? lineChart({ labels: snaps.map(s => fmtDate(s.date)), series: [{ name: 'Valeur totale', color: 'var(--accent)', values: snaps.map(s => s.total) }] }) : empty('Un point est enregistré automatiquement chaque jour où vous modifiez vos placements.')}</div>`;
 }
 const findH = id => S.holdings.find(h => h.id === id);
 function invModal(h) {
-  const e = h || { id: '', name: '', ticker: '', envelope: 'PEA', cls: 'Actions', qty: '', pru: '', price: '' };
+  const firstInv = S.accounts.find(a => typeFamily(a.type) === 'Placements') || S.accounts[0];
+  const e = h || { id: '', name: '', ticker: '', acct: UI.invAcct || firstInv.id, cls: 'Actions', qty: '', pru: '', price: '' };
   const opt = (arr, sel) => arr.map(x => `<option${x === sel ? ' selected' : ''}>${esc(x)}</option>`).join('');
   openModal(h ? 'Modifier le placement' : 'Nouveau placement', `
     <form data-form="invSave" class="stack">
       <input type="hidden" name="id" value="${esc(e.id)}">
       <div class="row"><label>Nom<input name="name" value="${esc(e.name)}" required maxlength="100" placeholder="ex. ETF MSCI World"></label>
         <label>Code / ticker (optionnel)<input name="ticker" value="${esc(e.ticker || '')}" maxlength="20"></label></div>
-      <div class="row"><label>Enveloppe<select name="envelope">${opt(ENVELOPES, e.envelope)}</select></label>
+      <div class="row"><label>Compte (enveloppe)<select name="acct">${acctOptionsGrouped(e.acct)}</select></label>
         <label>Classe d’actif<select name="cls">${opt(CLASSES, e.cls)}</select></label></div>
+      <p class="muted small" style="margin:0">Le compte n’existe pas encore ? Créez-le dans l’onglet <b>Comptes</b> (banque, type PEA, CTO, assurance-vie…).</p>
       <div class="row"><label>Quantité<input type="number" name="qty" step="any" min="0" value="${e.qty}" required></label>
         <label>Prix de revient unitaire (€)<input type="number" name="pru" step="any" min="0" value="${e.pru}" required></label>
         <label>Cours actuel (€)<input type="number" name="price" step="any" min="0" value="${e.price}" required></label></div>
@@ -1374,8 +1408,11 @@ function demoState() {
   }
   s.accounts = [
     { id: 'courant', name: 'Compte courant', bank: 'Banque Démo', type: 'Compte courant', note: '' },
-    newAccount('Livret A', { bank: 'Banque Démo', type: 'Livret A', note: 'Plafond 22 950 €' }),
-    newAccount('PEA', { bank: 'Courtier Démo', type: 'PEA' }),
+    { id: 'livreta', name: 'Livret A', bank: 'Banque Démo', type: 'Livret A', note: 'Plafond 22 950 €' },
+    { id: 'pea', name: 'PEA', bank: 'Courtier Démo', type: 'PEA', note: '' },
+    { id: 'cto', name: 'Compte-titres', bank: 'Courtier Démo', type: 'CTO', note: '' },
+    { id: 'av', name: 'Assurance-vie', bank: 'Assureur Démo', type: 'Assurance-vie', note: '' },
+    { id: 'crypto', name: 'Portefeuille crypto', bank: 'Plateforme Démo', type: 'Crypto-actifs', note: '' },
   ];
   s.transactions.forEach(t => Object.assign(t, classify(t.label, s.rules)));
   // pointages de fin de mois cohérents avec les opérations…
@@ -1391,11 +1428,10 @@ function demoState() {
   if (lost) s.transactions = s.transactions.filter(x => x !== lost);
   const t = today();
   s.holdings = [
-    ['ETF MSCI World', 'CW8', 'PEA', 'Actions', 45, 430, 560], ['ETF S&P 500', 'ESE', 'PEA', 'Actions', 300, 22, 27.4],
-    ['Air Liquide', 'AI', 'CTO', 'Actions', 20, 138, 171], ['Fonds euros', '', 'Assurance-vie', 'Fonds euros', 1, 20000, 21850],
-    ['Livret A', '', 'Livret', 'Monétaire / Livrets', 1, 15200, 15200], ['Bitcoin', 'BTC', 'Crypto', 'Crypto', 0.08, 31000, 58000],
-    ['Compte courant', '', 'Compte courant', 'Liquidités', 1, 2400, 2400],
-  ].map(([name, ticker, envelope, cls, qty, pru, price]) => ({ id: uid(), name: name + ' (démo)', ticker, envelope, cls, qty, pru, price, updated: t, realized: 0, ops: [] }));
+    ['ETF MSCI World', 'CW8', 'pea', 'Actions', 45, 430, 560], ['ETF S&P 500', 'ESE', 'pea', 'Actions', 300, 22, 27.4],
+    ['Air Liquide', 'AI', 'cto', 'Actions', 20, 138, 171], ['Fonds euros', '', 'av', 'Fonds euros', 1, 20000, 21850],
+    ['Livret A', '', 'livreta', 'Monétaire / Livrets', 1, 15200, 15200], ['Bitcoin', 'BTC', 'crypto', 'Crypto', 0.08, 31000, 58000],
+  ].map(([name, ticker, acct, cls, qty, pru, price]) => ({ id: uid(), name: name + ' (démo)', ticker, acct, cls, qty, pru, price, updated: t, realized: 0, ops: [] }));
   const total = s.holdings.reduce((a, h) => a + hValue(h), 0);
   for (let k = 12; k >= 1; k--) {
     const d = new Date(now.getFullYear(), now.getMonth() - k, 15);
@@ -1423,7 +1459,7 @@ const ACT = {
   acctDel: el => {
     const id = el.dataset.id;
     if (S.accounts.length === 1) { toast('Il faut au moins un compte.', 'err'); return; }
-    if (S.transactions.some(t => t.acct === id) || S.pointages.some(p => p.acct === id)) { toast('Ce compte contient des opérations ou des pointages : supprimez-les ou changez-les de compte d’abord.', 'err'); return; }
+    if (S.transactions.some(t => t.acct === id) || S.pointages.some(p => p.acct === id) || S.holdings.some(h => h.acct === id)) { toast('Ce compte contient des opérations, des pointages ou des placements : supprimez-les ou changez-les de compte d’abord.', 'err'); return; }
     const a = S.accounts.find(x => x.id === id);
     if (!a || !confirm(`Supprimer le compte « ${a.name} » ?`)) return;
     S.accounts = S.accounts.filter(x => x.id !== id); if (UI.txAcct === id) UI.txAcct = '';
@@ -1431,6 +1467,7 @@ const ACT = {
   },
   acctAdd: () => acctModal(),
   acctEdit: el => { const a = S.accounts.find(x => x.id === el.dataset.id); if (a) acctModal(a); },
+  acctShowInv: el => { UI.invAcct = el.dataset.id; go('inv'); },
   acctShowTx: el => { UI.txAcct = el.dataset.id; UI.txMonth = ''; UI.txCat = ''; UI.txSearch = ''; go('tx'); },
   ruleFromTx: el => { const t = findTx(el.dataset.id); if (t) ruleModal(t); },
   ruleAdd: () => ruleModal(null),
@@ -1510,6 +1547,7 @@ const CHG = {
   txCat: el => { UI.txCat = el.value; renderTxTable(); },
   txAcct: el => { UI.txAcct = el.value; renderTxTable(); },
   txRaw: el => { UI.txRaw = el.checked; renderTxTable(); },
+  invAcct: el => { UI.invAcct = el.value; renderInv(); },
   txSetCat: el => {
     const t = findTx(el.dataset.id); if (!t) return;
     t.cat = el.value; t.sub = ''; el.style.borderLeftColor = catById(t.cat).color; save();
@@ -1672,7 +1710,7 @@ const SUBMIT = {
   },
   invSave(f) {
     const e = f.elements, id = e.id.value;
-    const data = { name: e.name.value.trim(), ticker: e.ticker.value.trim(), envelope: e.envelope.value, cls: e.cls.value, qty: Math.max(0, num(e.qty.value)), pru: Math.max(0, num(e.pru.value)), price: Math.max(0, num(e.price.value)), updated: today() };
+    const data = { name: e.name.value.trim(), ticker: e.ticker.value.trim(), acct: e.acct.value, cls: e.cls.value, qty: Math.max(0, num(e.qty.value)), pru: Math.max(0, num(e.pru.value)), price: Math.max(0, num(e.price.value)), updated: today() };
     if (id) Object.assign(findH(id), data); else S.holdings.push({ id: uid(), realized: 0, ops: [], ...data });
     upsertSnapshot(); closeModal(); save(); renderInv();
   },
@@ -1699,8 +1737,8 @@ const SUBMIT = {
 };
 
 // En consultation, seules la navigation et les simulations (non enregistrées) sont permises.
-const RO_ACT = new Set(['tab', 'lock', 'discret', 'closeModal', 'lockHome', 'simUseNW', 'simUseAvg', 'simPreset', 'acctShowTx']);
-const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'txAcct', 'txRaw', 'viewFile']);
+const RO_ACT = new Set(['tab', 'lock', 'discret', 'closeModal', 'lockHome', 'simUseNW', 'simUseAvg', 'simPreset', 'acctShowTx', 'acctShowInv']);
+const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'txAcct', 'txRaw', 'invAcct', 'viewFile']);
 const roBlocked = () => { toast('Lecture seule : les modifications se font sur le PC.'); };
 document.addEventListener('click', e => {
   if (e.target.id === 'modal') { closeModal(); return; }
