@@ -1,18 +1,18 @@
-# Finances perso
+# Valtaris
 
 Application personnelle de suivi des dépenses, des investissements et de projection patrimoniale.
 **Un seul fichier HTML, aucune connexion réseau, données chiffrées.**
 
 Ce dépôt ne contient **que le code de l’application, sans aucune donnée**. Vos données sont dans **un fichier chiffré sur votre OneDrive**, lisible uniquement avec votre mot de passe maître.
 
-- **Application en ligne :** https://thlbs.github.io/finances-perso/
+- **Application en ligne :** https://thlbs.github.io/Valtaris/
 - **Fonctionnement :** le PC est **maître** (lecture et écriture), le smartphone est en **consultation seule**.
 
 ```
    PC (Chrome / Edge)                      OneDrive                     Smartphone
  ┌──────────────────────┐  sync Windows  ┌─────────────────┐  app OneDrive  ┌───────────────────┐
- │ finances.html        │ ─────────────► │ mes-finances    │ ─────────────► │ navigateur        │
- │ lit + écrit le       │                │ .fvault         │                │ lit le fichier,   │
+ │ index.html           │ ─────────────► │ valtaris.fvault │ ─────────────► │ navigateur        │
+ │ lit + écrit le       │                │                 │                │ lit le fichier,   │
  │ fichier .fvault      │                │ (chiffré)       │                │ déchiffre en      │
  └──────────────────────┘                └─────────────────┘                │ mémoire, n'écrit  │
                                                                             │ jamais            │
@@ -22,9 +22,9 @@ Ce dépôt ne contient **que le code de l’application, sans aucune donnée**. 
 
 ## Démarrer sur le PC (appareil maître)
 
-1. Ouvrez `finances.html` (copie locale du dépôt) ou l’adresse en ligne, avec **Chrome ou Edge**.
+1. Ouvrez l’adresse en ligne ou `index.html` (copie locale du dépôt), avec **Chrome ou Edge**.
 2. Cliquez sur *Créer un nouveau fichier de données* et choisissez un **mot de passe maître**. Il est **irrécupérable** : rangez-le dans votre gestionnaire de mots de passe. Comme le fichier sera sur OneDrive, prenez une **phrase de 5 mots aléatoires ou plus**.
-3. Enregistrez le fichier dans votre **dossier OneDrive**, par exemple `OneDrive\Finances\mes-finances.fvault`, mais **pas** dans le dossier du dépôt git. Le `.gitignore` exclut de toute façon les `.fvault`, `.csv` et `.json`.
+3. Enregistrez le fichier dans votre **dossier OneDrive**, par exemple `OneDrive\Finances\valtaris.fvault`, mais **pas** dans le dossier du dépôt git. Le `.gitignore` exclut de toute façon les `.fvault`, `.csv` et `.json`.
 4. À la prochaine ouverture, l’application retrouve le fichier : il suffit de saisir le mot de passe.
 5. Pour découvrir l’application : *Tableau de bord → Charger une démo*, puis *Paramètres → Effacer / oublier les données*.
 
@@ -34,7 +34,7 @@ Ce dépôt ne contient **que le code de l’application, sans aucune donnée**. 
 
 1. Installez l’application **OneDrive** et connectez-vous.
 2. Ouvrez l’adresse en ligne dans le navigateur. Astuce : ajoutez-la à l’écran d’accueil.
-3. Touchez *Ouvrir mon fichier de données*, choisissez `mes-finances.fvault` dans OneDrive, puis saisissez votre mot de passe.
+3. Touchez *Ouvrir mon fichier de données*, choisissez `valtaris.fvault` dans OneDrive, puis saisissez votre mot de passe.
 
 Vous voyez le tableau de bord, les dépenses, les placements et les projections, en **lecture seule**. Les données affichées sont celles du dernier enregistrement fait sur le PC. **Rien n’est stocké sur le téléphone** : le fichier est déchiffré en mémoire, puis oublié au verrouillage.
 
@@ -43,7 +43,7 @@ Vous voyez le tableau de bord, les dépenses, les placements et les projections,
 | Élément | Emplacement | Contenu |
 |---|---|---|
 | Code de l’application | Ce dépôt GitHub (public) / GitHub Pages | Aucune donnée, aucun secret |
-| Vos données | `mes-finances.fvault` sur votre OneDrive | Chiffrées (AES-256-GCM) : Microsoft ne peut pas les lire |
+| Vos données | `valtaris.fvault` sur votre OneDrive | Chiffrées (AES-256-GCM) : Microsoft ne peut pas les lire |
 | Sauvegardes | Fichiers `.fvault` exportés | Chiffrées |
 | Navigateur du PC | Uniquement le *nom* du fichier pour le rouvrir | Aucune donnée |
 | Smartphone | Rien | — |
@@ -67,7 +67,7 @@ Vous voyez le tableau de bord, les dépenses, les placements et les projections,
 - **Chiffrement AES-256-GCM** (authentifié : toute altération est détectée). La clé est dérivée du mot de passe via PBKDF2-SHA256 avec 600 000 itérations, ce qui ralentit fortement les attaques par force brute.
 - **Verrouillage automatique** après inactivité (10 min par défaut). Le verrouillage efface les données de la mémoire.
 - **Mode discret** (👁) : floute les montants à l’écran.
-- **Aucune dépendance externe** : tout le code est lisible dans `finances.html`.
+- **Aucune dépendance externe** : tout le code est lisible dans `index.html`.
 
 Ce qui reste de votre responsabilité :
 - **Activer la double authentification sur votre compte Microsoft**, qui protège le fichier chiffré.
@@ -83,7 +83,7 @@ Ce qui reste de votre responsabilité :
 
 ## Modifier le code
 
-Après toute modification du `<script>` de `finances.html`, recalculez l’empreinte, sinon la page refusera d’exécuter le script :
+Après toute modification du `<script>` de `index.html`, recalculez l’empreinte, sinon la page refusera d’exécuter le script :
 
 ```bash
 node outils/sceller.js

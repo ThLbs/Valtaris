@@ -1,11 +1,11 @@
-// Recalcule l'empreinte SHA-256 du script de finances.html et l'inscrit dans la CSP.
+// Recalcule l'empreinte SHA-256 du script de index.html (l'application Valtaris) et l'inscrit dans la CSP.
 // Ainsi, seul CE script exact peut s'exécuter dans la page : tout code injecté ou modifié est bloqué.
 // Usage : node outils/sceller.js
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const file = path.join(__dirname, '..', 'finances.html');
+const file = path.join(__dirname, '..', 'index.html');
 const html = fs.readFileSync(file, 'utf8');
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
 if (scripts.length !== 1) throw new Error(`Exactement un <script> attendu, ${scripts.length} trouvé(s).`);
