@@ -1,3 +1,5 @@
+<p align="center"><img src="logo.png" alt="Valtaris" width="160"></p>
+
 # Valtaris
 
 Application personnelle de suivi des dépenses, des investissements et de projection patrimoniale.
