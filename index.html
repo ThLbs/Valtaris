@@ -7,7 +7,7 @@
   formulaires, iframes). Seul le script ci-dessous, identifié par son empreinte SHA-256, peut s'exécuter.
   Après toute modification du script, relancer : node outils/sceller.js
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-POnbm/FcPDublKFUAlStQxJlJ5Vieu6DaK4WXLSU+Qg='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-zwD2AGApEGFCbJHm+1UvYTfHUTnB0NEibeJC/0MIB6I='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Valtaris</title>
@@ -101,6 +101,11 @@ label.inline{flex-direction:row;align-items:center;gap:8px;color:var(--text)}
 .cat-sel{max-width:220px;padding:4px 6px}
 .inline-num{width:110px;text-align:right;padding:4px 6px}
 .summary{font-size:13px;color:var(--muted);margin-bottom:8px}
+.tbl tr.pt td{background:var(--accent-soft)}
+.tbl th.raw,.tbl td.raw{background:var(--panel2);color:var(--muted);font-size:12px}
+.tbl td.raw{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl.kv th{width:40%}
+.recon h4{margin:14px 0 6px;font-size:14px}
 .budget-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
 .budget-grid label{flex-direction:row;align-items:center;justify-content:space-between;color:var(--text)}
 .budget-grid input{width:100px;text-align:right}
@@ -125,8 +130,8 @@ details summary{cursor:pointer;color:var(--accent);margin-top:8px}
 .donut-legend span.p{width:52px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 
 /* Mode consultation (lecture seule) */
-body.readonly :is([data-act=txAdd],[data-act=txEdit],[data-act=txDel],[data-act=invAdd],[data-act=invEdit],[data-act=invDel],[data-act=invTrade],label:has(>[data-chg=csvFile])){display:none!important}
-body.readonly :is([data-chg=txSetCat],[data-chg=budget],[data-chg=invPrice]){pointer-events:none;opacity:.8;appearance:none;-webkit-appearance:none;border-color:transparent;background:none}
+body.readonly :is([data-act=txAdd],[data-act=txEdit],[data-act=txDel],[data-act=ptAdd],[data-act=ptEdit],[data-act=ptDel],[data-act=invAdd],[data-act=invEdit],[data-act=invDel],[data-act=invTrade],label:has(>[data-chg=csvFile])){display:none!important}
+body.readonly :is([data-chg=txSetCat],[data-chg=txSetSub],[data-chg=budget],[data-chg=invPrice]){pointer-events:none;opacity:.8;appearance:none;-webkit-appearance:none;border-color:transparent;background:none}
 
 /* Petits écrans */
 @media (max-width:640px){
@@ -284,7 +289,7 @@ async function decryptVault(vault, pw) {
 let S = null;        // données déchiffrées (en mémoire uniquement)
 let session = null;  // { key (non exportable), salt, iter }
 let wiped = false;
-const UI = { tab: 'dash', month: today().slice(0, 7), txMonth: '', txCat: '', txSearch: '' };
+const UI = { tab: 'dash', month: today().slice(0, 7), txMonth: '', txCat: '', txAcct: '', txSearch: '', txRaw: false };
 
 const DEFAULT_CATS = [
   ['salaire', 'Salaire', 'revenu', '#22b07d'], ['revenus', 'Autres revenus', 'revenu', '#7cc49a'],
@@ -296,20 +301,29 @@ const DEFAULT_CATS = [
   ['impots', 'Impôts & taxes', 'depense', '#9a6b3f'], ['divers', 'Divers', 'depense', '#8a8f98'],
   ['virements', 'Épargne & virements internes', 'transfert', '#b0b5bd'], ['none', 'Non classé', 'depense', '#c9ccd1'],
 ];
+const DEFAULT_SUBS = {
+  salaire: ['Salaire', 'Prime'], logement: ['Loyer', 'Charges', 'Travaux & équipement'], alim: ['Courses', 'Boulangerie', 'Marché'],
+  transport: ['Carburant', 'Transports en commun', 'Train', 'Péage & parking'], energie: ['Électricité', 'Gaz', 'Eau'],
+  abos: ['Téléphone', 'Internet', 'Streaming'], resto: ['Restaurant', 'Livraison', 'Bar & café'],
+  shopping: ['Vêtements', 'High-tech', 'Maison'], sante: ['Pharmacie', 'Médecin', 'Mutuelle'],
+  loisirs: ['Voyages', 'Culture', 'Sport'], assurances: ['Habitation', 'Auto', 'Prévoyance'], impots: ['Impôt sur le revenu', 'Taxe foncière'],
+};
+// [mot-clé, catégorie, sous-catégorie facultative]
 const DEFAULT_RULES = [
-  ['salaire', 'salaire'], ['caf ', 'revenus'], ['remboursement', 'revenus'], ['loyer', 'logement'],
-  ['carrefour', 'alim'], ['leclerc', 'alim'], ['auchan', 'alim'], ['lidl', 'alim'], ['intermarche', 'alim'],
-  ['monoprix', 'alim'], ['franprix', 'alim'], ['picard', 'alim'], ['super u', 'alim'], ['boulangerie', 'alim'],
-  ['uber eats', 'resto'], ['deliveroo', 'resto'], ['restaurant', 'resto'], ['brasserie', 'resto'], ['mcdo', 'resto'],
-  ['sncf', 'transport'], ['ratp', 'transport'], ['navigo', 'transport'], ['uber', 'transport'], ['totalenergies', 'transport'],
-  ['station', 'transport'], ['peage', 'transport'], ['edf', 'energie'], ['engie', 'energie'], ['veolia', 'energie'],
-  ['free mobile', 'abos'], ['orange', 'abos'], ['sfr', 'abos'], ['bouygues', 'abos'], ['netflix', 'abos'],
-  ['spotify', 'abos'], ['disney', 'abos'], ['canal+', 'abos'], ['amazon', 'shopping'], ['fnac', 'shopping'],
-  ['decathlon', 'shopping'], ['pharmacie', 'sante'], ['medecin', 'sante'], ['docteur', 'sante'], ['mutuelle', 'sante'],
+  ['salaire', 'salaire', 'Salaire'], ['caf ', 'revenus'], ['remboursement', 'revenus'], ['loyer', 'logement', 'Loyer'],
+  ['carrefour', 'alim', 'Courses'], ['leclerc', 'alim', 'Courses'], ['auchan', 'alim', 'Courses'], ['lidl', 'alim', 'Courses'], ['intermarche', 'alim', 'Courses'],
+  ['monoprix', 'alim', 'Courses'], ['franprix', 'alim', 'Courses'], ['picard', 'alim', 'Courses'], ['super u', 'alim', 'Courses'], ['boulangerie', 'alim', 'Boulangerie'],
+  ['uber eats', 'resto', 'Livraison'], ['deliveroo', 'resto', 'Livraison'], ['restaurant', 'resto', 'Restaurant'], ['brasserie', 'resto', 'Restaurant'], ['mcdo', 'resto', 'Restaurant'],
+  ['sncf', 'transport', 'Train'], ['ratp', 'transport', 'Transports en commun'], ['navigo', 'transport', 'Transports en commun'], ['uber', 'transport'], ['totalenergies', 'transport', 'Carburant'],
+  ['station', 'transport', 'Carburant'], ['peage', 'transport', 'Péage & parking'], ['edf', 'energie', 'Électricité'], ['engie', 'energie', 'Gaz'], ['veolia', 'energie', 'Eau'],
+  ['free mobile', 'abos', 'Téléphone'], ['orange', 'abos'], ['sfr', 'abos'], ['bouygues', 'abos'], ['netflix', 'abos', 'Streaming'],
+  ['spotify', 'abos', 'Streaming'], ['disney', 'abos', 'Streaming'], ['canal+', 'abos', 'Streaming'], ['amazon', 'shopping'], ['fnac', 'shopping', 'High-tech'],
+  ['decathlon', 'shopping'], ['pharmacie', 'sante', 'Pharmacie'], ['medecin', 'sante', 'Médecin'], ['docteur', 'sante', 'Médecin'], ['mutuelle', 'sante', 'Mutuelle'],
   ['maif', 'assurances'], ['macif', 'assurances'], ['axa', 'assurances'], ['assurance', 'assurances'],
-  ['dgfip', 'impots'], ['impot', 'impots'], ['airbnb', 'loisirs'], ['booking', 'loisirs'], ['cinema', 'loisirs'],
+  ['dgfip', 'impots'], ['impot', 'impots'], ['airbnb', 'loisirs', 'Voyages'], ['booking', 'loisirs', 'Voyages'], ['cinema', 'loisirs', 'Culture'],
   ['livret', 'virements'], ['epargne', 'virements'], ['virement interne', 'virements'],
 ];
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const ENVELOPES = ['PEA', 'CTO', 'Assurance-vie', 'PER', 'Livret', 'Compte courant', 'Crypto', 'Immobilier', 'Autre'];
 const CLASSES = ['Actions', 'Obligations', 'Fonds euros', 'Monétaire / Livrets', 'Immobilier', 'Crypto', 'Liquidités', 'Autre'];
 const PALETTE = ['#4f7cff', '#22b07d', '#f5a524', '#e5484d', '#8e4ec6', '#12a5b8', '#d6409f', '#7c8a2e', '#f76b15', '#5b6b7f'];
@@ -317,9 +331,12 @@ const PALETTE = ['#4f7cff', '#22b07d', '#f5a524', '#e5484d', '#8e4ec6', '#12a5b8
 function defaultState() {
   return {
     version: 1, created: today(),
-    categories: DEFAULT_CATS.map(([id, name, kind, color]) => ({ id, name, kind, color })),
-    rules: DEFAULT_RULES.map(([kw, cat]) => ({ id: uid(), kw, cat })),
-    budgets: {}, transactions: [], holdings: [], snapshots: [],
+    categories: DEFAULT_CATS.map(([id, name, kind, color]) => ({ id, name, kind, color, subs: [...(DEFAULT_SUBS[id] || [])] })),
+    rules: DEFAULT_RULES.map(([kw, cat, sub = '']) => ({ id: uid(), kw, cat, sub })),
+    accounts: [{ id: 'courant', name: 'Compte courant' }],
+    // transaction : { id, date (dépense), pdate (pointage), acct, label, amount, cat, sub, note, raw? (ligne CSV d'origine) }
+    // pointage : { id, acct, date, balance, note } — solde réel constaté, ni débit ni crédit
+    budgets: {}, transactions: [], pointages: [], holdings: [], snapshots: [],
     settings: { lockMinutes: 10, lastBackup: null, discret: false },
     sim: { initial: 10000, monthly: 500, growth: 0, ret: 5, vol: 10, fees: 0.5, infl: 2, years: 20, goal: 300000, wr: 4, real: true, redCat: 'resto', redPct: 20 },
   };
@@ -328,12 +345,26 @@ function migrate(d) {
   const base = defaultState();
   if (!d || typeof d !== 'object') throw new Error('Données invalides');
   for (const k of Object.keys(base)) if (d[k] === undefined) d[k] = base[k];
-  for (const k of ['categories', 'rules', 'transactions', 'holdings', 'snapshots']) if (!Array.isArray(d[k])) d[k] = base[k];
+  for (const k of ['categories', 'rules', 'transactions', 'pointages', 'accounts', 'holdings', 'snapshots']) if (!Array.isArray(d[k])) d[k] = base[k];
   d.settings = { ...base.settings, ...d.settings };
   d.sim = { ...base.sim, ...d.sim };
   if (!d.categories.some(c => c.id === 'none')) d.categories.push({ id: 'none', name: 'Non classé', kind: 'depense', color: '#c9ccd1' });
-  d.categories.forEach(c => { c.color = safeColor(c.color); if (!['depense', 'revenu', 'transfert'].includes(c.kind)) c.kind = 'depense'; });
-  d.transactions = d.transactions.filter(t => t && /^\d{4}-\d{2}-\d{2}$/.test(t.date) && Number.isFinite(t.amount));
+  d.categories.forEach(c => {
+    c.color = safeColor(c.color); if (!['depense', 'revenu', 'transfert'].includes(c.kind)) c.kind = 'depense';
+    if (!Array.isArray(c.subs)) c.subs = [...(DEFAULT_SUBS[c.id] || [])];
+  });
+  d.rules.forEach(r => { if (typeof r.sub !== 'string') r.sub = ''; });
+  d.accounts = d.accounts.filter(a => a && a.id && a.name);
+  if (!d.accounts.length) d.accounts = base.accounts;
+  const hasAcct = id => d.accounts.some(a => a.id === id), acct0 = d.accounts[0].id;
+  d.transactions = d.transactions.filter(t => t && ISO.test(t.date) && Number.isFinite(t.amount));
+  d.transactions.forEach(t => {
+    if (!ISO.test(t.pdate)) t.pdate = t.date;
+    if (!hasAcct(t.acct)) t.acct = acct0;
+    if (typeof t.sub !== 'string') t.sub = '';
+  });
+  d.pointages = d.pointages.filter(p => p && ISO.test(p.date) && Number.isFinite(p.balance));
+  d.pointages.forEach(p => { if (!hasAcct(p.acct)) p.acct = acct0; });
   return d;
 }
 
@@ -514,10 +545,33 @@ function toast(msg, kind = '', action = null) {
 // ---------- Catégories & règles ----------
 function catById(id) { return S.categories.find(c => c.id === id) || S.categories.find(c => c.id === 'none'); }
 function isTransfer(t) { return catById(t.cat).kind === 'transfert'; }
-function categorize(label, rules = S.rules) {
-  const l = norm(label);
-  for (const r of rules) if (r.kw && l.includes(norm(r.kw))) return r.cat;
-  return 'none';
+function matchRule(label, rules = S.rules) { const l = norm(label); return rules.find(r => r.kw && l.includes(norm(r.kw))) || null; }
+function categorize(label, rules = S.rules) { const r = matchRule(label, rules); return r ? r.cat : 'none'; }
+function classify(label, rules = S.rules) { const r = matchRule(label, rules); return r ? { cat: r.cat, sub: r.sub || '' } : { cat: 'none', sub: '' }; }
+function subOptions(cat, sel) {
+  const subs = catById(cat).subs || [], all = sel && !subs.includes(sel) ? [...subs, sel] : subs;
+  return `<option value="">—</option>` + all.map(s => `<option value="${esc(s)}"${s === sel ? ' selected' : ''}>${esc(s)}</option>`).join('');
+}
+const catLabel = (cat, sub) => esc(catById(cat).name) + (sub ? ' › ' + esc(sub) : '');
+
+// ---------- Comptes bancaires & pointages ----------
+const acctName = id => (S.accounts.find(a => a.id === id) || { name: '?' }).name;
+const acctOptions = sel => S.accounts.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}</option>`).join('');
+const defaultAcct = () => UI.txAcct || S.accounts[0].id;
+const findPt = id => S.pointages.find(p => p.id === id);
+// Rapprochement : entre deux pointages d'un compte, la somme des opérations (selon leur date de pointage)
+// doit égaler la variation du solde. Le solde d'un pointage inclut les opérations pointées le même jour.
+function reconcile(acct) {
+  const pts = S.pointages.filter(p => p.acct === acct).sort((a, b) => a.date.localeCompare(b.date));
+  const txs = S.transactions.filter(t => t.acct === acct);
+  const periods = pts.slice(1).map((p, i) => {
+    const prev = pts[i], ops = txs.filter(t => t.pdate > prev.date && t.pdate <= p.date);
+    const sum = round2(ops.reduce((s, t) => s + t.amount, 0)), expected = round2(p.balance - prev.balance);
+    return { prev, p, n: ops.length, sum, expected, gap: round2(expected - sum) };
+  });
+  const last = pts[pts.length - 1];
+  const estimate = last ? round2(last.balance + txs.filter(t => t.pdate > last.date).reduce((s, t) => s + t.amount, 0)) : null;
+  return { pts, periods, last, estimate };
 }
 function catOptions(sel) {
   const groups = [['revenu', 'Revenus'], ['depense', 'Dépenses'], ['transfert', 'Transferts (exclus des stats)']];
@@ -678,17 +732,21 @@ function renderTx() {
   const months = allMonths();
   $('#tab-tx').innerHTML = `
     <div class="toolbar"><h2>Dépenses & revenus</h2><span class="spacer"></span>
-      <button class="btn primary" data-act="txAdd">+ Ajouter</button>
+      <button class="btn primary" data-act="txAdd">+ Opération</button>
+      <button class="btn" data-act="ptAdd" title="Saisir le solde réel d’un compte à une date">🎯 Pointage de solde</button>
       <label class="btn">⇪ Importer un CSV<input type="file" accept=".csv,.txt" data-chg="csvFile" hidden></label>
     </div>
     <div class="card">
       <div class="filters">
         <select data-chg="txMonth"><option value="">Tous les mois</option>${months.map(m => `<option value="${m}"${m === UI.txMonth ? ' selected' : ''}>${esc(monthLabel(m))}</option>`).join('')}</select>
+        <select data-chg="txAcct"><option value="">Tous les comptes</option>${acctOptions(UI.txAcct)}</select>
         <select data-chg="txCat"><option value="">Toutes catégories</option>${catOptions(UI.txCat)}</select>
-        <input type="search" placeholder="Rechercher un libellé…" value="${esc(UI.txSearch)}" data-inp="txSearch">
+        <input type="search" placeholder="Rechercher (libellé, note, sous-catégorie, donnée brute)…" value="${esc(UI.txSearch)}" data-inp="txSearch">
+        <label class="inline small"><input type="checkbox" data-chg="txRaw"${UI.txRaw ? ' checked' : ''}> Afficher la donnée brute du fichier</label>
       </div>
       <div id="txTable"></div>
     </div>
+    <div class="card recon"><h3>🎯 Rapprochement des comptes</h3><div id="recon"></div></div>
     <div class="card"><h3>Budgets mensuels</h3><p class="muted small" style="margin-top:-6px">Plafond par mois. Laisser vide = pas de budget.</p>
       <div class="budget-grid">${S.categories.filter(c => c.kind === 'depense').map(c =>
         `<label><span><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span><input type="number" min="0" step="10" value="${S.budgets[c.id] ?? ''}" data-chg="budget" data-id="${esc(c.id)}" placeholder="—"></label>`).join('')}</div>
@@ -697,42 +755,109 @@ function renderTx() {
 }
 function filteredTx() {
   const q = norm(UI.txSearch.trim());
-  return S.transactions.filter(t => (!UI.txMonth || t.date.startsWith(UI.txMonth)) && (!UI.txCat || t.cat === UI.txCat)
-    && (!q || norm(t.label).includes(q) || norm(t.note).includes(q)))
-    .sort((a, b) => b.date.localeCompare(a.date));
+  return S.transactions.filter(t => (!UI.txMonth || t.date.startsWith(UI.txMonth)) && (!UI.txCat || t.cat === UI.txCat) && (!UI.txAcct || t.acct === UI.txAcct)
+    && (!q || norm(t.label).includes(q) || norm(t.note).includes(q) || norm(t.sub).includes(q) || (t.raw && Object.values(t.raw).some(v => norm(v).includes(q)))));
+}
+// Les pointages ne portent ni catégorie ni libellé : masqués dès qu'on filtre sur ces critères.
+function filteredPts() {
+  if (UI.txCat || UI.txSearch.trim()) return [];
+  return S.pointages.filter(p => (!UI.txMonth || p.date.startsWith(UI.txMonth)) && (!UI.txAcct || p.acct === UI.txAcct));
+}
+function recStatus(r) {
+  if (!r) return '<span class="muted">Premier pointage de ce compte : point de départ du rapprochement.</span>';
+  const since = `depuis le ${fmtDate(r.prev.date)}`;
+  return r.gap === 0
+    ? `<span class="pos">✓ Rapproché</span> <span class="muted">— ${r.n} opération(s) ${since} = ${signMoney(r.sum)}</span>`
+    : `<span class="neg">⚠ Écart de ${signMoney(r.gap)}</span> <span class="muted">— variation du solde ${since} ${signMoney(r.expected)}, opérations relevées ${signMoney(r.sum)} (${r.n})</span>`;
 }
 function renderTxTable() {
-  const list = filteredTx(); let inc = 0, exp = 0;
+  const list = filteredTx(), pts = filteredPts(); let inc = 0, exp = 0;
   for (const t of list) { if (isTransfer(t)) continue; if (t.amount >= 0) inc += t.amount; else exp -= t.amount; }
-  const shown = list.slice(0, 500);
-  $('#txTable').innerHTML = `<div class="summary">${list.length} opération(s) · Revenus <b class="pos">${money(inc)}</b> · Dépenses <b class="neg">${money(exp)}</b> · Solde <b>${signMoney(inc - exp)}</b> <span class="small">(transferts exclus)</span></div>
-  ${list.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th class="num">Montant</th><th></th></tr></thead><tbody>
-    ${shown.map(t => `<tr><td class="nowrap">${fmtDate(t.date)}</td><td>${esc(t.label)}${t.note ? `<div class="muted small">${esc(t.note)}</div>` : ''}</td>
+  const recByPt = new Map();
+  S.accounts.forEach(a => reconcile(a.id).periods.forEach(r => recByPt.set(r.p.id, r)));
+  // Tri par date de pointage décroissante ; à date égale, le pointage (qui inclut les opérations du jour) passe au-dessus.
+  const rows = [...list.map(t => ({ t, k: t.pdate })), ...pts.map(p => ({ p, k: p.date }))]
+    .sort((a, b) => b.k.localeCompare(a.k) || (b.p ? 1 : 0) - (a.p ? 1 : 0) || (a.t && b.t ? b.t.date.localeCompare(a.t.date) : 0));
+  const shown = rows.slice(0, 500);
+  const rawCols = UI.txRaw ? [...new Set(shown.flatMap(r => r.t && r.t.raw ? Object.keys(r.t.raw) : []))] : [];
+  const rawCells = t => rawCols.map(c => { const v = t.raw && t.raw[c] != null ? t.raw[c] : ''; return `<td class="raw" title="${esc(v)}">${esc(v)}</td>`; }).join('');
+  const txRow = t => `<tr><td class="nowrap">${fmtDate(t.date)}</td><td class="nowrap${t.pdate === t.date ? ' muted' : ''}">${fmtDate(t.pdate)}</td>
+      <td class="nowrap">${esc(acctName(t.acct))}</td>
+      <td>${esc(t.label)}${t.note ? `<div class="muted small">${esc(t.note)}</div>` : ''}</td>
       <td><select class="cat-sel" data-chg="txSetCat" data-id="${t.id}" style="border-left:4px solid ${catById(t.cat).color}">${catOptions(t.cat)}</select></td>
-      <td class="num ${t.amount < 0 ? 'neg' : 'pos'}">${money(t.amount)}</td>
-      <td class="actions"><button class="icon" title="Modifier" data-act="txEdit" data-id="${t.id}">✎</button><button class="icon" title="Supprimer" data-act="txDel" data-id="${t.id}">✕</button></td></tr>`).join('')}
-  </tbody></table></div>${list.length > 500 ? '<p class="muted small">Affichage limité aux 500 plus récentes — affinez les filtres.</p>' : ''}`
+      <td><select class="cat-sel" data-chg="txSetSub" data-id="${t.id}">${subOptions(t.cat, t.sub)}</select></td>
+      <td class="num ${t.amount < 0 ? 'neg' : 'pos'}">${money(t.amount)}</td>${rawCells(t)}
+      <td class="actions"><button class="icon" title="Modifier" data-act="txEdit" data-id="${t.id}">✎</button><button class="icon" title="Supprimer" data-act="txDel" data-id="${t.id}">✕</button></td></tr>`;
+  const ptRow = p => `<tr class="pt"><td></td><td class="nowrap"><b>${fmtDate(p.date)}</b></td><td class="nowrap">${esc(acctName(p.acct))}</td>
+      <td colspan="3"><b>🎯 Pointage — solde réel du compte</b>${p.note ? ` <span class="muted small">${esc(p.note)}</span>` : ''}<div class="small">${recStatus(recByPt.get(p.id))}</div></td>
+      <td class="num"><b>${money(p.balance)}</b></td>${rawCols.length ? `<td class="raw" colspan="${rawCols.length}"></td>` : ''}
+      <td class="actions"><button class="icon" title="Modifier" data-act="ptEdit" data-id="${p.id}">✎</button><button class="icon" title="Supprimer" data-act="ptDel" data-id="${p.id}">✕</button></td></tr>`;
+  $('#txTable').innerHTML = `<div class="summary">${list.length} opération(s)${pts.length ? ` · ${pts.length} pointage(s)` : ''} · Revenus <b class="pos">${money(inc)}</b> · Dépenses <b class="neg">${money(exp)}</b> · Solde <b>${signMoney(inc - exp)}</b> <span class="small">(transferts exclus)</span></div>
+  ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Date dépense</th><th title="Date de passage sur le compte (date comptable / de valeur), utilisée pour le rapprochement">Date pointage</th><th>Compte</th><th>Libellé</th><th>Catégorie</th><th>Sous-catégorie</th><th class="num">Montant</th>
+    ${rawCols.map(c => `<th class="raw" title="Donnée brute reçue du fichier">${esc(c)}</th>`).join('')}<th></th></tr></thead><tbody>
+    ${shown.map(r => r.t ? txRow(r.t) : ptRow(r.p)).join('')}
+  </tbody></table></div>${rows.length > 500 ? '<p class="muted small">Affichage limité aux 500 lignes les plus récentes — affinez les filtres.</p>' : ''}
+  ${UI.txRaw && !rawCols.length ? '<p class="muted small">Aucune donnée brute : ces opérations ont été saisies à la main (ou importées avant cette version).</p>' : ''}`
     : empty('Aucune opération. Ajoutez-en une ou importez le relevé CSV exporté depuis votre banque.')}`;
+  renderRecon();
+}
+function renderRecon() {
+  const el = $('#recon'); if (!el) return;
+  const accts = S.accounts.filter(a => !UI.txAcct || a.id === UI.txAcct).map(a => ({ a, ...reconcile(a.id) })).filter(x => x.pts.length);
+  el.innerHTML = `<p class="muted small" style="margin-top:-6px">Saisissez régulièrement le solde réel de chaque compte (bouton « Pointage de solde »). Entre deux pointages, la somme des opérations relevées (selon leur date de pointage) doit égaler la variation du solde ; sinon, une opération manque, est en double ou a un mauvais montant.</p>
+    ${accts.length ? accts.map(({ a, periods, last, estimate }) => `<h4>${esc(a.name)}</h4>
+      <p class="small" style="margin:0 0 6px">Dernier pointage le ${fmtDate(last.date)} : <b>${money(last.balance)}</b> · Solde estimé avec les opérations relevées depuis : <b>${money(estimate)}</b></p>
+      ${periods.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Du</th><th>Au</th><th class="num">Solde début</th><th class="num">Solde fin</th><th class="num">Variation</th><th class="num">Opérations relevées</th><th class="num">Écart</th></tr></thead><tbody>
+        ${periods.slice().reverse().slice(0, 36).map(r => `<tr><td class="nowrap">${fmtDate(r.prev.date)}</td><td class="nowrap">${fmtDate(r.p.date)}</td><td class="num">${money(r.prev.balance)}</td><td class="num">${money(r.p.balance)}</td>
+          <td class="num">${signMoney(r.expected)}</td><td class="num">${signMoney(r.sum)} <span class="muted small">(${r.n})</span></td>
+          <td class="num">${r.gap === 0 ? '<span class="pos">✓</span>' : `<b class="neg">⚠ ${esc(fmtEur(r.gap))}</b>`}</td></tr>`).join('')}
+      </tbody></table></div>` : '<p class="muted small">Un seul pointage pour l’instant : saisissez-en un second plus tard pour vérifier la période.</p>'}`).join('')
+    : empty('Aucun pointage de solde pour l’instant.')}`;
 }
 function txModal(t) {
-  const e = t || { id: '', date: today(), label: '', amount: -0, cat: '', note: '' };
+  const e = t || { id: '', date: today(), pdate: '', acct: defaultAcct(), label: '', amount: -0, cat: '', sub: '', note: '' };
   openModal(t ? 'Modifier l’opération' : 'Nouvelle opération', `
     <form data-form="txSave" class="stack">
       <input type="hidden" name="id" value="${esc(e.id)}">
       <div class="row">
         <label>Type<select name="type"><option value="dep"${e.amount < 0 || Object.is(e.amount, -0) ? ' selected' : ''}>Dépense</option><option value="rev"${e.amount > 0 ? ' selected' : ''}>Revenu</option></select></label>
-        <label>Date<input type="date" name="date" value="${esc(e.date)}" required></label>
         <label>Montant (€)<input type="number" name="amount" step="0.01" min="0" value="${e.amount ? Math.abs(e.amount) : ''}" required></label>
+        <label>Compte<select name="acct">${acctOptions(e.acct)}</select></label>
+      </div>
+      <div class="row">
+        <label>Date de la dépense<input type="date" name="date" value="${esc(e.date)}" required></label>
+        <label>Date de pointage<input type="date" name="pdate" value="${esc(e.pdate)}" title="Date de passage sur le compte. Vide = date de la dépense."></label>
       </div>
       <label>Libellé<input name="label" value="${esc(e.label)}" required maxlength="200"></label>
       <div class="row">
-        <label>Catégorie<select name="cat"><option value="">Automatique (règles)</option>${catOptions(e.cat)}</select></label>
-        <label>Note<input name="note" value="${esc(e.note || '')}" maxlength="300"></label>
+        <label>Catégorie<select name="cat" data-chg="formCat"><option value="">Automatique (règles)</option>${catOptions(e.cat)}</select></label>
+        <label>Sous-catégorie<select name="sub">${subOptions(e.cat || 'none', e.sub)}</select></label>
       </div>
+      <label>Note<input name="note" value="${esc(e.note || '')}" maxlength="300"></label>
+      ${e.raw ? `<details><summary>Donnée brute reçue du fichier</summary><div class="table-wrap"><table class="tbl kv small">${Object.entries(e.raw).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</table></div></details>` : ''}
+      <div class="row"><span class="spacer"></span><button class="btn primary" type="submit">Enregistrer</button></div>
+    </form>`);
+}
+function ptModal(p) {
+  const e = p || { id: '', acct: defaultAcct(), date: today(), balance: '', note: '' };
+  openModal(p ? 'Modifier le pointage' : 'Nouveau pointage de solde', `
+    <form data-form="ptSave" class="stack">
+      <input type="hidden" name="id" value="${esc(e.id)}">
+      <p class="muted" style="margin:0">Saisissez le <b>solde réel</b> du compte tel que l’affiche votre banque à cette date, opérations du jour comprises. Ce n’est ni un débit ni un crédit : il sert à vérifier que les opérations relevées depuis le pointage précédent expliquent bien la variation du solde.</p>
+      <div class="row">
+        <label>Compte<select name="acct">${acctOptions(e.acct)}</select></label>
+        <label>Date<input type="date" name="date" value="${esc(e.date)}" required></label>
+        <label>Solde (€)<input type="number" name="balance" step="0.01" value="${esc(e.balance)}" required></label>
+      </div>
+      <label>Note<input name="note" value="${esc(e.note || '')}" maxlength="200"></label>
       <div class="row"><span class="spacer"></span><button class="btn primary" type="submit">Enregistrer</button></div>
     </form>`);
 }
 const findTx = id => S.transactions.find(t => t.id === id);
+function offerRule(t, msg) {
+  if (!S.rules.some(r => norm(t.label).includes(norm(r.kw)) && r.cat === t.cat && (r.sub || '') === t.sub))
+    toast(msg, '', { label: 'Créer une règle', attrs: `data-act="ruleFromTx" data-id="${t.id}"` });
+}
 
 function ruleModal(t) {
   const kw = t ? suggestKeyword(t.label) : '';
@@ -740,7 +865,8 @@ function ruleModal(t) {
     <form data-form="ruleSave" class="stack">
       <p class="muted" style="margin:0">Toute opération dont le libellé contient ce mot-clé (sans tenir compte des majuscules et accents) sera classée dans la catégorie choisie.</p>
       <div class="row"><label>Mot-clé<input name="kw" value="${esc(kw)}" required maxlength="80"></label>
-        <label>Catégorie<select name="cat">${catOptions(t ? t.cat : 'divers')}</select></label></div>
+        <label>Catégorie<select name="cat" data-chg="formCat">${catOptions(t ? t.cat : 'divers')}</select></label>
+        <label>Sous-catégorie<select name="sub">${subOptions(t ? t.cat : 'divers', t ? t.sub : '')}</select></label></div>
       <label class="inline"><input type="checkbox" name="apply" checked> Appliquer aussi aux opérations existantes correspondantes</label>
       <div class="row"><span class="spacer"></span><button class="btn primary" type="submit">Créer la règle</button></div>
     </form>`);
@@ -800,18 +926,30 @@ function startCsvImport(rows) {
   const isDateCol = i => /date/.test(h[i]) || !!parseDate(sample[i]);
   // les colonnes « Date opération » / « Date valeur » ne doivent pas être prises pour un libellé ou un montant
   const find = (re, fb = -1, dateOk = false) => { const i = h.findIndex((x, j) => re.test(x) && (dateOk || !isDateCol(j))); return i >= 0 ? i : fb; };
-  const dateI = find(/date/, sample.findIndex(c => parseDate(c)), true);
+  // date de la dépense = « date opération » de préférence ; date de pointage = date comptable / de valeur
+  let dateI = find(/date.*(op|achat|depense|transac)/, -1, true);
+  if (dateI < 0) dateI = find(/date/, sample.findIndex(c => parseDate(c)), true);
+  const pdateI = h.findIndex((x, j) => j !== dateI && /comptab|pointage|val/.test(x) && isDateCol(j));
   const debit = find(/debit/), credit = find(/credit/);
   const amount = find(/montant|amount|somme|valeur/, sample.findIndex((c, i) => !isDateCol(i) && parseAmount(c) !== null && /\d/.test(c)));
   const label = find(/libell|label|descr|wording|intitul|operation|nature|detail/, sample.findIndex((c, i) => !isDateCol(i) && parseAmount(c) === null));
-  CSV = { header, data, guess: { date: dateI, label, amount, debit, credit, mode: debit >= 0 || credit >= 0 ? 'split' : 'single' } };
+  // noms des colonnes brutes, rendus uniques (deux colonnes peuvent porter le même titre)
+  const seen = {}, rawKeys = header.map((c, i) => { const k = c || 'Colonne ' + (i + 1); seen[k] = (seen[k] || 0) + 1; return seen[k] > 1 ? `${k} (${seen[k]})` : k; });
+  CSV = { header, rawKeys, data, guess: { date: dateI, pdate: pdateI, label, amount, debit, credit, mode: debit >= 0 || credit >= 0 ? 'split' : 'single' } };
   const opts = sel => `<option value="-1">—</option>` + header.map((c, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>${esc(c || 'Colonne ' + (i + 1))}</option>`).join('');
   const g = CSV.guess;
   openModal('Importer un relevé CSV', `
     <form data-form="csvImport" data-chg="csvPreview" class="stack">
       <p class="muted" style="margin:0">${data.length} ligne(s) détectée(s). Vérifiez la correspondance des colonnes. Le fichier est lu localement, rien n’est envoyé.</p>
       <div class="row">
-        <label>Date<select name="date">${opts(g.date)}</select></label>
+        <label>Compte bancaire du relevé<select name="acct">${acctOptions(defaultAcct())}</select></label>
+        <label>… ou nouveau compte<input name="newAcct" maxlength="60" placeholder="Nom du compte à créer"></label>
+      </div>
+      <div class="row">
+        <label>Date de la dépense<select name="date">${opts(g.date)}</select></label>
+        <label>Date de pointage<select name="pdate">${opts(g.pdate).replace('>—<', '>Identique à la date de la dépense<')}</select></label>
+      </div>
+      <div class="row">
         <label>Libellé<select name="label">${opts(g.label)}</select></label>
         <label>Complément de libellé<select name="label2">${opts(-1)}</select></label>
       </div>
@@ -830,12 +968,12 @@ function startCsvImport(rows) {
 }
 function csvMap(f) {
   const v = n => +f.elements[n].value;
-  return { date: v('date'), label: v('label'), label2: v('label2'), mode: f.elements.mode.value, amount: v('amount'), debit: v('debit'), credit: v('credit'), invert: f.elements.invert.checked };
+  return { date: v('date'), pdate: v('pdate'), label: v('label'), label2: v('label2'), mode: f.elements.mode.value, amount: v('amount'), debit: v('debit'), credit: v('credit'), invert: f.elements.invert.checked };
 }
 function csvRows(map) {
   const ok = []; let bad = 0;
   for (const r of CSV.data) {
-    const date = parseDate(r[map.date]);
+    const date = parseDate(r[map.date]), pdate = (map.pdate >= 0 && parseDate(r[map.pdate])) || date;
     let amount;
     if (map.mode === 'split') {
       const d = map.debit >= 0 ? parseAmount(r[map.debit]) : null, c = map.credit >= 0 ? parseAmount(r[map.credit]) : null;
@@ -843,7 +981,8 @@ function csvRows(map) {
     } else amount = map.amount >= 0 ? parseAmount(r[map.amount]) : null;
     const label = [r[map.label], map.label2 >= 0 ? r[map.label2] : ''].filter(Boolean).join(' — ').replace(/\s+/g, ' ').trim();
     if (!date || amount === null || !label) { bad++; continue; }
-    ok.push({ date, label: label.slice(0, 200), amount: round2(map.invert ? -amount : amount) });
+    const raw = Object.fromEntries(CSV.rawKeys.map((k, i) => [k, String(r[i] ?? '').slice(0, 500)]));
+    ok.push({ date, pdate, label: label.slice(0, 200), amount: round2(map.invert ? -amount : amount), raw });
   }
   return { ok, bad };
 }
@@ -852,8 +991,8 @@ function csvPreview(f) {
   $$('[data-m]', f).forEach(el => { el.hidden = el.dataset.m !== map.mode; });
   const { ok, bad } = csvRows(map);
   $('#csvPrev').innerHTML = `<div class="summary">${ok.length} opération(s) valide(s)${bad ? ` · <span class="warn">${bad} ligne(s) ignorée(s) (date, montant ou libellé illisible)</span>` : ''}</div>
-    <div class="table-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie auto</th><th class="num">Montant</th></tr></thead><tbody>
-    ${ok.slice(0, 6).map(t => `<tr><td>${fmtDate(t.date)}</td><td>${esc(t.label)}</td><td>${esc(catById(categorize(t.label)).name)}</td><td class="num ${t.amount < 0 ? 'neg' : 'pos'}">${esc(fmtEur(t.amount))}</td></tr>`).join('')}
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Date dépense</th><th>Date pointage</th><th>Libellé</th><th>Catégorie auto</th><th class="num">Montant</th></tr></thead><tbody>
+    ${ok.slice(0, 6).map(t => { const c = classify(t.label); return `<tr><td>${fmtDate(t.date)}</td><td>${fmtDate(t.pdate)}</td><td>${esc(t.label)}</td><td>${catLabel(c.cat, c.sub)}</td><td class="num ${t.amount < 0 ? 'neg' : 'pos'}">${esc(fmtEur(t.amount))}</td></tr>`; }).join('')}
     </tbody></table></div>`;
 }
 
@@ -1090,11 +1229,24 @@ function renderSettings() {
         <button class="btn" data-act="exportCsv">Exporter les opérations en CSV</button>
       </div>
     </div>
+    <div class="card" style="margin-top:16px"><h3>🏦 Comptes bancaires</h3>
+      <p class="muted small" style="margin-top:0">Chaque opération et chaque pointage de solde est rattaché à un compte. Le rapprochement se fait compte par compte.</p>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>Nom</th><th class="num">Opérations</th><th class="num">Pointages</th><th></th></tr></thead><tbody>
+      ${S.accounts.map(a => `<tr><td><input value="${esc(a.name)}" maxlength="60" data-chg="acctName" data-id="${esc(a.id)}"></td>
+        <td class="num">${S.transactions.filter(t => t.acct === a.id).length}</td><td class="num">${S.pointages.filter(p => p.acct === a.id).length}</td>
+        <td class="actions"><button class="icon" title="Supprimer" data-act="acctDel" data-id="${esc(a.id)}">✕</button></td></tr>`).join('')}
+      </tbody></table></div>
+      <form data-form="acctAdd" class="row" style="margin-top:10px">
+        <label>Nouveau compte<input name="name" required maxlength="60" placeholder="ex. Compte joint, Carte de crédit…"></label>
+        <button class="btn" type="submit">Ajouter</button>
+      </form>
+    </div>
     <div class="grid2">
       <div class="card"><h3>Catégories</h3>
-        <div class="table-wrap"><table class="tbl"><thead><tr><th>Couleur</th><th>Nom</th><th>Type</th><th></th></tr></thead><tbody>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>Couleur</th><th>Nom</th><th>Sous-catégories</th><th>Type</th><th></th></tr></thead><tbody>
         ${S.categories.map(c => `<tr><td><input type="color" value="${c.color}" data-chg="catColor" data-id="${esc(c.id)}"></td>
           <td><input value="${esc(c.name)}" maxlength="60" data-chg="catName" data-id="${esc(c.id)}"></td>
+          <td><input value="${esc(c.subs.join(', '))}" maxlength="600" placeholder="séparées par des virgules" data-chg="catSubs" data-id="${esc(c.id)}"></td>
           <td><select data-chg="catKind" data-id="${esc(c.id)}">${[['depense', 'Dépense'], ['revenu', 'Revenu'], ['transfert', 'Transfert']].map(([k, l]) => `<option value="${k}"${k === c.kind ? ' selected' : ''}>${l}</option>`).join('')}</select></td>
           <td class="actions">${c.id === 'none' ? '' : `<button class="icon" title="Supprimer" data-act="catDel" data-id="${esc(c.id)}">✕</button>`}</td></tr>`).join('')}
         </tbody></table></div>
@@ -1113,7 +1265,7 @@ function renderSettings() {
           <button class="btn" data-act="rulesApply" data-all="1">Reclasser toutes les opérations</button>
         </div>
         <div class="table-wrap" style="max-height:420px;overflow-y:auto"><table class="tbl"><thead><tr><th>Mot-clé</th><th>Catégorie</th><th></th></tr></thead><tbody>
-        ${S.rules.map(r => `<tr><td><code>${esc(r.kw)}</code></td><td><span class="dot" style="background:${catById(r.cat).color}"></span>${esc(catById(r.cat).name)}</td><td class="actions"><button class="icon" data-act="ruleDel" data-id="${r.id}" title="Supprimer">✕</button></td></tr>`).join('')}
+        ${S.rules.map(r => `<tr><td><code>${esc(r.kw)}</code></td><td><span class="dot" style="background:${catById(r.cat).color}"></span>${catLabel(r.cat, r.sub)}</td><td class="actions"><button class="icon" data-act="ruleDel" data-id="${r.id}" title="Supprimer">✕</button></td></tr>`).join('')}
         </tbody></table></div>
       </div>
     </div>
@@ -1147,7 +1299,12 @@ function demoState() {
   const pick = a => a[Math.floor(rnd() * a.length)], day = () => 1 + Math.floor(rnd() * 27);
   for (let k = 11; k >= 0; k--) {
     const d = new Date(now.getFullYear(), now.getMonth() - k, 1), Y = d.getFullYear(), M = d.getMonth() + 1, last = k === 0 ? now.getDate() : 28;
-    const add = (dd, label, amount) => { if (dd <= last) s.transactions.push({ id: uid(), date: `${Y}-${pad(M)}-${pad(dd)}`, label, amount: round2(amount), cat: '' }); };
+    // les paiements par carte passent sur le compte 1 à 2 jours après la dépense
+    const add = (dd, label, amount) => {
+      if (dd > last) return;
+      const lag = label.startsWith('CB ') ? 1 + Math.floor(rnd() * 2) : 0;
+      s.transactions.push({ id: uid(), date: `${Y}-${pad(M)}-${pad(dd)}`, pdate: `${Y}-${pad(M)}-${pad(Math.min(dd + lag, last))}`, acct: 'courant', label, amount: round2(amount), cat: '', sub: '', note: '' });
+    };
     add(27, 'VIR SEPA SALAIRE ACME SAS', 2850 + (M === 12 ? 1400 : 0));
     add(2, 'VIR PERMANENT LIVRET A', -300);
     add(3, 'PRLV SEPA LOYER AGENCE DU CENTRE', -890);
@@ -1164,7 +1321,18 @@ function demoState() {
     if (M === 7 || M === 8) add(day(), 'AIRBNB PAYMENTS', -(450 + rnd() * 300));
     if (rnd() < 0.2) add(day(), 'VIR REMBOURSEMENT MUTUELLE', 25 + rnd() * 40);
   }
-  s.transactions.forEach(t => { t.cat = categorize(t.label, s.rules); });
+  s.transactions.forEach(t => Object.assign(t, classify(t.label, s.rules)));
+  // pointages de fin de mois cohérents avec les opérations…
+  const start = new Date(now.getFullYear(), now.getMonth() - 11, 0), iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const pt = (date, balance) => s.pointages.push({ id: uid(), acct: 'courant', date, balance: round2(balance), note: '' });
+  pt(iso(start), 1850);
+  for (let k = 11; k >= 1; k--) {
+    const d = iso(new Date(now.getFullYear(), now.getMonth() - k + 1, 0));
+    pt(d, 1850 + s.transactions.filter(x => x.pdate <= d).reduce((a, x) => a + x.amount, 0));
+  }
+  // …sauf une opération « oubliée » il y a 3 mois, que le rapprochement fera apparaître comme un écart
+  const lost = s.transactions.find(x => x.label.startsWith('CB ') && x.date.startsWith(iso(new Date(now.getFullYear(), now.getMonth() - 3, 1)).slice(0, 7)));
+  if (lost) s.transactions = s.transactions.filter(x => x !== lost);
   const t = today();
   s.holdings = [
     ['ETF MSCI World', 'CW8', 'PEA', 'Actions', 45, 430, 560], ['ETF S&P 500', 'ESE', 'PEA', 'Actions', 300, 22, 27.4],
@@ -1193,6 +1361,16 @@ const ACT = {
   txAdd: () => txModal(),
   txEdit: el => txModal(findTx(el.dataset.id)),
   txDel: el => { if (confirm('Supprimer cette opération ?')) { S.transactions = S.transactions.filter(t => t.id !== el.dataset.id); save(); renderTxTable(); } },
+  ptAdd: () => ptModal(),
+  ptEdit: el => { const p = findPt(el.dataset.id); if (p) ptModal(p); },
+  ptDel: el => { if (confirm('Supprimer ce pointage de solde ?')) { S.pointages = S.pointages.filter(p => p.id !== el.dataset.id); save(); renderTxTable(); } },
+  acctDel: el => {
+    const id = el.dataset.id;
+    if (S.accounts.length === 1) { toast('Il faut au moins un compte.', 'err'); return; }
+    if (S.transactions.some(t => t.acct === id) || S.pointages.some(p => p.acct === id)) { toast('Ce compte contient des opérations ou des pointages : supprimez-les ou changez-les de compte d’abord.', 'err'); return; }
+    S.accounts = S.accounts.filter(a => a.id !== id); if (UI.txAcct === id) UI.txAcct = '';
+    save(); renderSettings();
+  },
   ruleFromTx: el => { const t = findTx(el.dataset.id); if (t) ruleModal(t); },
   ruleAdd: () => ruleModal(null),
   ruleDel: el => { S.rules = S.rules.filter(r => r.id !== el.dataset.id); save(); renderSettings(); },
@@ -1200,13 +1378,13 @@ const ACT = {
     const all = el.dataset.all === '1';
     if (all && !confirm('Reclasser toutes les opérations selon les règles ? Les catégories choisies à la main seront écrasées (sauf si aucune règle ne correspond).')) return;
     let n = 0;
-    S.transactions.forEach(t => { if (all || t.cat === 'none') { const c = categorize(t.label); if (c !== 'none' && c !== t.cat) { t.cat = c; n++; } } });
+    S.transactions.forEach(t => { if (all || t.cat === 'none') { const c = classify(t.label); if (c.cat !== 'none' && (c.cat !== t.cat || c.sub !== t.sub)) { t.cat = c.cat; t.sub = c.sub; n++; } } });
     save(); toast(`${n} opération(s) reclassée(s).`);
   },
   catDel: el => {
     const c = catById(el.dataset.id);
     if (!confirm(`Supprimer la catégorie « ${c.name} » ? Ses opérations passeront en « Non classé ».`)) return;
-    S.transactions.forEach(t => { if (t.cat === c.id) t.cat = 'none'; });
+    S.transactions.forEach(t => { if (t.cat === c.id) { t.cat = 'none'; t.sub = ''; } });
     S.rules = S.rules.filter(r => r.cat !== c.id);
     delete S.budgets[c.id];
     S.categories = S.categories.filter(x => x.id !== c.id);
@@ -1229,8 +1407,8 @@ const ACT = {
   exportCsv: () => {
     if (!confirm('Ce fichier CSV ne sera PAS chiffré. Continuer ?')) return;
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = ['Date;Libellé;Montant;Catégorie;Note'].concat([...S.transactions].sort((a, b) => a.date.localeCompare(b.date))
-      .map(t => [t.date, q(t.label), String(t.amount).replace('.', ','), q(catById(t.cat).name), q(t.note)].join(';')));
+    const lines = ['Date dépense;Date pointage;Compte;Libellé;Montant;Catégorie;Sous-catégorie;Note'].concat([...S.transactions].sort((a, b) => a.date.localeCompare(b.date))
+      .map(t => [t.date, t.pdate, q(acctName(t.acct)), q(t.label), String(t.amount).replace('.', ','), q(catById(t.cat).name), q(t.sub), q(t.note)].join(';')));
     download(`operations-${today()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
   },
   demo: () => {
@@ -1269,12 +1447,19 @@ const CHG = {
   setMonth: el => { UI.month = el.value; renderDash(); },
   txMonth: el => { UI.txMonth = el.value; renderTxTable(); },
   txCat: el => { UI.txCat = el.value; renderTxTable(); },
+  txAcct: el => { UI.txAcct = el.value; renderTxTable(); },
+  txRaw: el => { UI.txRaw = el.checked; renderTxTable(); },
   txSetCat: el => {
     const t = findTx(el.dataset.id); if (!t) return;
-    t.cat = el.value; el.style.borderLeftColor = catById(t.cat).color; save();
-    if (!S.rules.some(r => norm(t.label).includes(norm(r.kw)) && r.cat === t.cat))
-      toast('Catégorie modifiée.', '', { label: 'Créer une règle', attrs: `data-act="ruleFromTx" data-id="${t.id}"` });
+    t.cat = el.value; t.sub = ''; el.style.borderLeftColor = catById(t.cat).color; save();
+    const subSel = el.closest('tr').querySelector('[data-chg=txSetSub]'); if (subSel) subSel.innerHTML = subOptions(t.cat, '');
+    offerRule(t, 'Catégorie modifiée.');
   },
+  txSetSub: el => { const t = findTx(el.dataset.id); if (!t) return; t.sub = el.value; save(); offerRule(t, 'Sous-catégorie modifiée.'); },
+  // formulaire (opération ou règle) : la liste des sous-catégories suit la catégorie choisie
+  formCat: el => { el.form.elements.sub.innerHTML = subOptions(el.value || 'none', ''); },
+  acctName: el => { const a = S.accounts.find(x => x.id === el.dataset.id); const v = el.value.trim(); if (!a) return; if (v) { a.name = v; save(); } else el.value = a.name; },
+  catSubs: el => { const c = catById(el.dataset.id); c.subs = [...new Set(el.value.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 50); el.value = c.subs.join(', '); save(); },
   budget: el => { const v = num(el.value); if (v > 0) S.budgets[el.dataset.id] = v; else delete S.budgets[el.dataset.id]; save(); },
   invPrice: el => { const h = findH(el.dataset.id); if (!h) return; h.price = Math.max(0, num(el.value)); h.updated = today(); upsertSnapshot(); save(); renderInv(); },
   lockMinutes: el => { S.settings.lockMinutes = +el.value; save(); },
@@ -1380,28 +1565,43 @@ const SUBMIT = {
   txSave(f) {
     const e = f.elements, id = e.id.value, label = e.label.value.trim();
     const amount = round2(Math.abs(num(e.amount.value)) * (e.type.value === 'dep' ? -1 : 1));
-    const data = { date: e.date.value, label, amount, cat: e.cat.value || categorize(label), note: e.note.value.trim() };
+    const c = e.cat.value ? { cat: e.cat.value, sub: e.sub.value } : classify(label);
+    const data = { date: e.date.value, pdate: e.pdate.value || e.date.value, acct: e.acct.value, label, amount, ...c, note: e.note.value.trim() };
     if (id) Object.assign(findTx(id), data); else S.transactions.push({ id: uid(), ...data });
     closeModal(); save(); renderTx();
   },
+  ptSave(f) {
+    const e = f.elements, id = e.id.value;
+    const data = { acct: e.acct.value, date: e.date.value, balance: round2(num(e.balance.value)), note: e.note.value.trim() };
+    if (id) Object.assign(findPt(id), data); else S.pointages.push({ id: uid(), ...data });
+    closeModal(); save(); renderTx();
+  },
+  acctAdd(f) {
+    const name = f.elements.name.value.trim(); if (!name) return;
+    S.accounts.push({ id: uid(), name }); save(); renderSettings();
+  },
   ruleSave(f) {
-    const kw = f.elements.kw.value.trim(), cat = f.elements.cat.value;
+    const kw = f.elements.kw.value.trim(), cat = f.elements.cat.value, sub = f.elements.sub.value;
     if (!kw) return;
-    S.rules.unshift({ id: uid(), kw, cat }); // nouvelle règle prioritaire
+    S.rules.unshift({ id: uid(), kw, cat, sub }); // nouvelle règle prioritaire
     let n = 0;
-    if (f.elements.apply.checked) S.transactions.forEach(t => { if (norm(t.label).includes(norm(kw)) && t.cat !== cat) { t.cat = cat; n++; } });
+    if (f.elements.apply.checked) S.transactions.forEach(t => { if (norm(t.label).includes(norm(kw)) && (t.cat !== cat || t.sub !== sub)) { t.cat = cat; t.sub = sub; n++; } });
     closeModal(); save(); refresh(); toast(`Règle créée${n ? `, ${n} opération(s) reclassée(s)` : ''}.`);
   },
   csvImport(f) {
     const { ok } = csvRows(csvMap(f));
-    const key = t => `${t.date}|${t.amount.toFixed(2)}|${norm(t.label)}`;
+    const newName = f.elements.newAcct.value.trim();
+    let acct = f.elements.acct.value;
+    if (newName) { const a = S.accounts.find(x => norm(x.name) === norm(newName)) || { id: uid(), name: newName }; if (!S.accounts.includes(a)) S.accounts.push(a); acct = a.id; }
+    ok.forEach(t => { t.acct = acct; });
+    const key = t => `${t.acct}|${t.date}|${t.amount.toFixed(2)}|${norm(t.label)}`;
     const existing = new Map();
     if (f.elements.dedupe.checked) S.transactions.forEach(t => existing.set(key(t), (existing.get(key(t)) || 0) + 1));
     let added = 0, dup = 0;
     for (const t of ok) {
       const k = key(t), c = existing.get(k) || 0;
       if (c > 0) { existing.set(k, c - 1); dup++; continue; }
-      S.transactions.push({ id: uid(), ...t, cat: categorize(t.label) }); added++;
+      S.transactions.push({ id: uid(), ...t, ...classify(t.label), note: '' }); added++;
     }
     CSV = null; closeModal(); save(); UI.month = latestMonth(); renderTx();
     const unc = S.transactions.filter(t => t.cat === 'none').length;
@@ -1437,7 +1637,7 @@ const SUBMIT = {
 
 // En consultation, seules la navigation et les simulations (non enregistrées) sont permises.
 const RO_ACT = new Set(['tab', 'lock', 'discret', 'closeModal', 'lockHome', 'simUseNW', 'simUseAvg', 'simPreset']);
-const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'viewFile']);
+const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'txAcct', 'txRaw', 'viewFile']);
 const roBlocked = () => { toast('Lecture seule : les modifications se font sur le PC.'); };
 document.addEventListener('click', e => {
   if (e.target.id === 'modal') { closeModal(); return; }
