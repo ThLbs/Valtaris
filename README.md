@@ -55,6 +55,7 @@ Vous voyez le tableau de bord, les dépenses, les placements et les projections,
 | Onglet | Contenu |
 |---|---|
 | **Tableau de bord** | Patrimoine, revenus/dépenses du mois, taux d’épargne, 12 mois glissants, répartition par catégorie, suivi des budgets, évolution du patrimoine |
+| **Comptes** | Tous vos comptes, regroupés par famille : banque ou institut, type (compte courant, Livret A, LDDS, LEP, PEL, PEA, CTO, assurance-vie, PER…), note, nombre d’opérations, dernier pointage et solde estimé |
 | **Dépenses** | Date de la dépense et date de pointage, compte bancaire, catégorie et sous-catégorie. Saisie manuelle ou **import CSV** de vos relevés (détection automatique du format, colonnes débit/crédit, doublons ignorés). La **ligne brute du fichier** est conservée et peut être affichée à côté des colonnes traitées. Classement automatique par règles, budgets mensuels par catégorie |
 | **Pointages** | Saisie du **solde réel** d’un compte à une date. Entre deux pointages, l’application vérifie que les opérations relevées (selon leur date de pointage) expliquent la variation du solde, et signale l’écart sinon |
 | **Investissements** | PEA, CTO, assurance-vie, PER, livrets, crypto, immobilier… Prix de revient unitaire (PRU), plus-values latentes et réalisées, achats/ventes avec recalcul du PRU, répartition par classe d’actifs et par enveloppe, historique |
