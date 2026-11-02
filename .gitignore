@@ -1,0 +1,17 @@
+# ⚠ Aucune donnée personnelle ne doit jamais être versionnée.
+# Coffres et sauvegardes chiffrés
+*.fvault
+# Relevés bancaires et exports en clair
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.ofx
+*.qif
+*.json
+# Configuration locale de Claude Code
+.claude/
+# Fichiers système
+Thumbs.db
+desktop.ini
+.DS_Store
