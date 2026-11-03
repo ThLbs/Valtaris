@@ -7,7 +7,7 @@
   formulaires, iframes). Seul le script ci-dessous, identifié par son empreinte SHA-256, peut s'exécuter.
   Après toute modification du script, relancer : node outils/sceller.js
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-NKxgiJJnVll7GUsbBsuSDFiCtjBX1Xb6xQHz7Qq+n20='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-cO7IR01Ltu0MOLRTuj/wBpB6RdJKddEzT2go60DpqeE='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Valtaris</title>
@@ -613,7 +613,7 @@ const acctOf = id => S.accounts.find(a => a.id === id) || { name: '?', bank: '',
 // liste des comptes groupée par famille (placements en tête), pour rattacher un placement
 function acctOptionsGrouped(sel) {
   const fams = ['Placements', ...ACCOUNT_TYPES.map(([f]) => f).filter(f => f !== 'Placements')];
-  return fams.map(f => { const as = S.accounts.filter(a => typeFamily(a.type) === f);
+  return fams.map(f => { const as = S.accounts.filter(a => typeFamily(a.type) === f && (f !== 'Comptes de dépôt' || a.id === sel));
     return as.length ? `<optgroup label="${esc(f)}">${as.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.bank ? ' — ' + esc(a.bank) : ''}</option>`).join('')}</optgroup>` : ''; }).join('');
 }
 const findPt = id => S.pointages.find(p => p.id === id);
@@ -1229,8 +1229,8 @@ function renderAccounts() {
       ${kpi('Solde estimé des comptes pointés', money(total, false), `${known.length} compte(s) avec au moins un pointage`)}
       ${kpi('Valeur des placements', money(invTotal, false), `${S.holdings.length} placement(s) rattaché(s)`)}
     </div>
-    ${families.map(f => `<div class="card"><h3>${esc(f)}</h3>
-      <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Banque / institut</th><th>Type</th><th class="num">Opérations</th><th>Dernier pointage</th><th class="num">Solde estimé</th><th class="num">Placements</th><th></th></tr></thead><tbody>
+    ${families.map(f => { const dep = f === 'Comptes de dépôt'; return `<div class="card"><h3>${esc(f)}</h3>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Banque / institut</th><th>Type</th><th class="num">Opérations</th><th>Dernier pointage</th><th class="num"${dep ? ' title="Dernier pointage + opérations prélevées depuis"' : ''}>${dep ? 'Solde' : 'Solde estimé'}</th>${dep ? '' : '<th class="num">Placements</th>'}<th></th></tr></thead><tbody>
       ${rows.filter(r => typeFamily(r.a.type) === f).map(({ a, n, last, estimate, gaps, nh, inv }) => `<tr>
         <td style="min-width:150px"><b>${esc(a.name)}</b>${a.note ? `<div class="muted small">${esc(a.note)}</div>` : ''}</td>
         <td>${a.bank ? esc(a.bank) : '<span class="muted">—</span>'}</td>
@@ -1238,9 +1238,9 @@ function renderAccounts() {
         <td class="num">${n}</td>
         <td class="nowrap">${last ? `${fmtDate(last.date)} · ${money(last.balance)}` : '<span class="muted">aucun</span>'}${gaps ? ` <span class="neg small" title="Périodes dont le rapprochement présente un écart">⚠ ${gaps} écart(s)</span>` : ''}</td>
         <td class="num">${last ? money(estimate) : '<span class="muted">—</span>'}</td>
-        <td class="num">${nh ? `${money(inv)} <span class="muted small">(${nh})</span>` : '<span class="muted">—</span>'}</td>
+        ${dep ? '' : `<td class="num">${nh ? `${money(inv)} <span class="muted small">(${nh})</span>` : '<span class="muted">—</span>'}</td>`}
         <td class="actions">${nh ? `<button class="icon" title="Voir les placements" data-act="acctShowInv" data-id="${esc(a.id)}">📈</button>` : ''}<button class="icon" title="Voir les opérations" data-act="acctShowTx" data-id="${esc(a.id)}">☰</button><button class="icon" title="Saisir le solde à date (pointage)" data-act="acctPoint" data-id="${esc(a.id)}">🎯</button><button class="icon" title="Modifier" data-act="acctEdit" data-id="${esc(a.id)}">✎</button><button class="icon" title="Supprimer" data-act="acctDel" data-id="${esc(a.id)}">✕</button></td></tr>`).join('')}
-      </tbody></table></div></div>`).join('')}
+      </tbody></table></div></div>`; }).join('')}
     <p class="muted small">Le solde estimé part du dernier pointage de solde du compte et ajoute les opérations relevées depuis. Saisissez les pointages depuis l’onglet Dépenses.</p>`;
 }
 function acctModal(a) {
