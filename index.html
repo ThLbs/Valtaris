@@ -7,7 +7,7 @@
   formulaires, iframes). Seul le script ci-dessous, identifié par son empreinte SHA-256, peut s'exécuter.
   Après toute modification du script, relancer : node outils/sceller.js
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-kGOeveVnZMZ2SGgJk3H4ejf2c0LEEyhBR8UIqc55G9o='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-NKxgiJJnVll7GUsbBsuSDFiCtjBX1Xb6xQHz7Qq+n20='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Valtaris</title>
@@ -102,6 +102,9 @@ label.inline{flex-direction:row;align-items:center;gap:8px;color:var(--text)}
 .inline-num{width:110px;text-align:right;padding:4px 6px}
 .summary{font-size:13px;color:var(--muted);margin-bottom:8px}
 .tbl tr.pt td{background:var(--accent-soft)}
+.tbl tr.grp td{background:var(--panel2);border-top:2px solid var(--border)}
+.tbl tfoot th{border-top:2px solid var(--border);border-bottom:0;color:var(--text)}
+.pivot td,.pivot th{white-space:nowrap}
 .tbl th.raw,.tbl td.raw{background:var(--panel2);color:var(--muted);font-size:12px}
 .tbl td.raw{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tbl.kv th{width:40%}
@@ -130,8 +133,8 @@ details summary{cursor:pointer;color:var(--accent);margin-top:8px}
 .donut-legend span.p{width:52px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 
 /* Mode consultation (lecture seule) */
-body.readonly :is([data-act=txAdd],[data-act=txEdit],[data-act=txDel],[data-act=ptAdd],[data-act=ptEdit],[data-act=ptDel],[data-act=acctAdd],[data-act=acctEdit],[data-act=acctDel],[data-act=invAdd],[data-act=invEdit],[data-act=invDel],[data-act=invTrade],label:has(>[data-chg=csvFile])){display:none!important}
-body.readonly :is([data-chg=txSetCat],[data-chg=txSetSub],[data-chg=budget],[data-chg=invPrice]){pointer-events:none;opacity:.8;appearance:none;-webkit-appearance:none;border-color:transparent;background:none}
+body.readonly :is([data-act=txAdd],[data-act=txEdit],[data-act=txDel],[data-act=ptAdd],[data-act=ptEdit],[data-act=ptDel],[data-act=acctAdd],[data-act=acctEdit],[data-act=acctDel],[data-act=acctPoint],[data-act=invAdd],[data-act=invEdit],[data-act=invDel],[data-act=invTrade],label:has(>[data-chg=csvFile])){display:none!important}
+body.readonly :is([data-chg=txSetCat],[data-chg=txSetSub],[data-chg=projHist],[data-chg=projHyp],[data-chg=budget],[data-chg=invPrice]){pointer-events:none;opacity:.8;appearance:none;-webkit-appearance:none;border-color:transparent;background:none}
 
 /* Petits écrans */
 @media (max-width:640px){
@@ -184,6 +187,7 @@ ul.sec{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
       <button data-act="tab" data-tab="dash">Tableau de bord</button>
       <button data-act="tab" data-tab="acc">Comptes</button>
       <button data-act="tab" data-tab="tx">Dépenses</button>
+      <button data-act="tab" data-tab="an">Analyse</button>
       <button data-act="tab" data-tab="inv">Investissements</button>
       <button data-act="tab" data-tab="proj">Projections</button>
       <button data-act="tab" data-tab="set">Paramètres</button>
@@ -197,6 +201,7 @@ ul.sec{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
     <section id="tab-dash"></section>
     <section id="tab-acc" hidden></section>
     <section id="tab-tx" hidden></section>
+    <section id="tab-an" hidden></section>
     <section id="tab-inv" hidden></section>
     <section id="tab-proj" hidden></section>
     <section id="tab-set" hidden></section>
@@ -291,7 +296,9 @@ async function decryptVault(vault, pw) {
 let S = null;        // données déchiffrées (en mémoire uniquement)
 let session = null;  // { key (non exportable), salt, iter }
 let wiped = false;
-const UI = { tab: 'dash', month: today().slice(0, 7), txMonth: '', txCat: '', txAcct: '', txSearch: '', txRaw: false, invAcct: '' };
+const UI = { tab: 'dash', month: today().slice(0, 7), txMonth: '', txCat: '', txAcct: '', txSearch: '', txRaw: false, invAcct: '',
+  // analyse : période (mois de début/fin), regroupement, type, compte, catégories exclues, détail des sous-catégories
+  an: { from: '', to: '', gran: 'month', kind: 'depense', acct: '', off: new Set(), subs: false } };
 
 const DEFAULT_CATS = [
   ['salaire', 'Salaire', 'revenu', '#22b07d'], ['revenus', 'Autres revenus', 'revenu', '#7cc49a'],
@@ -347,9 +354,12 @@ function defaultState() {
     rules: DEFAULT_RULES.map(([kw, cat, sub = '']) => ({ id: uid(), kw, cat, sub })),
     // compte : { id, name, bank (banque ou institut), type (voir ACCOUNT_TYPES), note }
     accounts: [{ id: 'courant', name: 'Compte courant', bank: '', type: 'Compte courant', note: '' }],
-    // transaction : { id, date (dépense), pdate (pointage), acct, label, amount, cat, sub, note, raw? (ligne CSV d'origine) }
+    // transaction : { id, date (dépense), pdate (prélèvement), acct, rawLabel (libellé original), label (simplifié), amount,
+    //   cat, sub, peer (autre compte d'un transfert interne, '' sinon), note, raw? (ligne CSV d'origine) }
     // pointage : { id, acct, date, balance, note } — solde réel constaté, ni débit ni crédit
     budgets: {}, transactions: [], pointages: [], holdings: [], snapshots: [],
+    // projection annuelle : hist[compte][année] = solde fin d'année saisi ; hyp[compte] = { rate (%/an), contrib (€/an) }
+    proj: { years: 10, since: null, hist: {}, hyp: {} },
     settings: { lockMinutes: 10, lastBackup: null, discret: false },
     sim: { initial: 10000, monthly: 500, growth: 0, ret: 5, vol: 10, fees: 0.5, infl: 2, years: 20, goal: 300000, wr: 4, real: true, redCat: 'resto', redPct: 20 },
   };
@@ -376,7 +386,11 @@ function migrate(d) {
     if (!ISO.test(t.pdate)) t.pdate = t.date;
     if (!hasAcct(t.acct)) t.acct = acct0;
     if (typeof t.sub !== 'string') t.sub = '';
+    if (typeof t.rawLabel !== 'string' || !t.rawLabel) { t.rawLabel = String(t.label || ''); t.label = simplifyLabel(t.rawLabel); }
+    if (!hasAcct(t.peer) || t.peer === t.acct) t.peer = '';
   });
+  d.proj = { ...base.proj, ...(d.proj && typeof d.proj === 'object' ? d.proj : {}) };
+  for (const k of ['hist', 'hyp']) if (!d.proj[k] || typeof d.proj[k] !== 'object') d.proj[k] = {};
   d.pointages = d.pointages.filter(p => p && ISO.test(p.date) && Number.isFinite(p.balance));
   d.pointages.forEach(p => { if (!hasAcct(p.acct)) p.acct = acct0; });
   // chaque placement est rattaché à un compte ; l'ancienne « enveloppe » devient un compte du type correspondant
@@ -540,7 +554,7 @@ function latestMonth() {
 function applyDiscret() { document.body.classList.toggle('discret', !!S.settings.discret); }
 
 // ---------- Navigation ----------
-const RENDER = { dash: renderDash, acc: renderAccounts, tx: renderTx, inv: renderInv, proj: renderProj, set: renderSettings };
+const RENDER = { dash: renderDash, acc: renderAccounts, tx: renderTx, an: renderAnalysis, inv: renderInv, proj: renderProj, set: renderSettings };
 function go(tab) {
   UI.tab = tab;
   for (const k of Object.keys(RENDER)) $('#tab-' + k).hidden = k !== tab;
@@ -568,7 +582,20 @@ function toast(msg, kind = '', action = null) {
 
 // ---------- Catégories & règles ----------
 function catById(id) { return S.categories.find(c => c.id === id) || S.categories.find(c => c.id === 'none'); }
-function isTransfer(t) { return catById(t.cat).kind === 'transfert'; }
+// Un transfert interne (autre compte renseigné) ou une catégorie « Transfert » n'est ni un revenu ni une dépense.
+function isTransfer(t) { return !!t.peer || catById(t.cat).kind === 'transfert'; }
+// Compte d'origine = compte de l'opération si débit ; compte de destination = compte de l'opération si crédit.
+const txFrom = t => t.amount < 0 ? t.acct : t.peer, txTo = t => t.amount < 0 ? t.peer : t.acct;
+const txText = t => `${t.rawLabel} ${t.label}`;
+// Libellé simplifié : retire les préfixes bancaires (CB, PRLV SEPA, VIR…), dates, numéros de carte et références.
+function simplifyLabel(raw) {
+  const src = String(raw || '').replace(/\s+/g, ' ').trim();
+  let s = src.replace(/^(PAIEMENT PAR CARTE|PAIEMENT CB|ACHAT CB|CARTE|CB|PRLV SEPA|PRELEVEMENT SEPA|PRELEVEMENT|PRLV|VIR(EMENT)?( SEPA)?( RECU| EMIS| PERMANENT| INST(ANTANE)?)?)\b[ :.\-]*/i, '');
+  s = s.replace(/\b[X*]\d{4}\b/gi, ' ').replace(/\b\d{2}[\/.]\d{2}([\/.]\d{2,4})?\b/g, ' ').replace(/\b\d{5,}\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s) s = src;
+  return s.toLowerCase().replace(/(^|[\s'’\-\/&])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()).slice(0, 120);
+}
+function addDays(iso, n) { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function matchRule(label, rules = S.rules) { const l = norm(label); return rules.find(r => r.kw && l.includes(norm(r.kw))) || null; }
 function categorize(label, rules = S.rules) { const r = matchRule(label, rules); return r ? r.cat : 'none'; }
 function classify(label, rules = S.rules) { const r = matchRule(label, rules); return r ? { cat: r.cat, sub: r.sub || '' } : { cat: 'none', sub: '' }; }
@@ -590,7 +617,7 @@ function acctOptionsGrouped(sel) {
     return as.length ? `<optgroup label="${esc(f)}">${as.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.bank ? ' — ' + esc(a.bank) : ''}</option>`).join('')}</optgroup>` : ''; }).join('');
 }
 const findPt = id => S.pointages.find(p => p.id === id);
-// Rapprochement : entre deux pointages d'un compte, la somme des opérations (selon leur date de pointage)
+// Rapprochement : entre deux pointages d'un compte, la somme des opérations (selon leur date de prélèvement)
 // doit égaler la variation du solde. Le solde d'un pointage inclut les opérations pointées le même jour.
 function reconcile(acct) {
   const pts = S.pointages.filter(p => p.acct === acct).sort((a, b) => a.date.localeCompare(b.date));
@@ -787,7 +814,7 @@ function renderTx() {
 function filteredTx() {
   const q = norm(UI.txSearch.trim());
   return S.transactions.filter(t => (!UI.txMonth || t.date.startsWith(UI.txMonth)) && (!UI.txCat || t.cat === UI.txCat) && (!UI.txAcct || t.acct === UI.txAcct)
-    && (!q || norm(t.label).includes(q) || norm(t.note).includes(q) || norm(t.sub).includes(q) || (t.raw && Object.values(t.raw).some(v => norm(v).includes(q)))));
+    && (!q || norm(txText(t)).includes(q) || norm(t.note).includes(q) || norm(t.sub).includes(q) || (t.raw && Object.values(t.raw).some(v => norm(v).includes(q)))));
 }
 // Les pointages ne portent ni catégorie ni libellé : masqués dès qu'on filtre sur ces critères.
 function filteredPts() {
@@ -806,7 +833,7 @@ function renderTxTable() {
   for (const t of list) { if (isTransfer(t)) continue; if (t.amount >= 0) inc += t.amount; else exp -= t.amount; }
   const recByPt = new Map();
   S.accounts.forEach(a => reconcile(a.id).periods.forEach(r => recByPt.set(r.p.id, r)));
-  // Tri par date de pointage décroissante ; à date égale, le pointage (qui inclut les opérations du jour) passe au-dessus.
+  // Tri par date de prélèvement décroissante ; à date égale, le pointage (qui inclut les opérations du jour) passe au-dessus.
   const rows = [...list.map(t => ({ t, k: t.pdate })), ...pts.map(p => ({ p, k: p.date }))]
     .sort((a, b) => b.k.localeCompare(a.k) || (b.p ? 1 : 0) - (a.p ? 1 : 0) || (a.t && b.t ? b.t.date.localeCompare(a.t.date) : 0));
   const shown = rows.slice(0, 500);
@@ -815,16 +842,18 @@ function renderTxTable() {
   const txRow = t => `<tr><td class="nowrap">${fmtDate(t.date)}</td><td class="nowrap${t.pdate === t.date ? ' muted' : ''}">${fmtDate(t.pdate)}</td>
       <td class="nowrap">${esc(acctName(t.acct))}</td>
       <td>${esc(t.label)}${t.note ? `<div class="muted small">${esc(t.note)}</div>` : ''}</td>
+      <td class="muted small" style="min-width:160px">${esc(t.rawLabel)}</td>
       <td><select class="cat-sel" data-chg="txSetCat" data-id="${t.id}" style="border-left:4px solid ${catById(t.cat).color}">${catOptions(t.cat)}</select></td>
       <td><select class="cat-sel" data-chg="txSetSub" data-id="${t.id}">${subOptions(t.cat, t.sub)}</select></td>
-      <td class="num ${t.amount < 0 ? 'neg' : 'pos'}">${money(t.amount)}</td>${rawCells(t)}
+      ${[txFrom(t), txTo(t)].map(id => `<td class="nowrap${t.peer ? '' : ' muted'}">${id ? esc(acctName(id)) : '<span title="Hors de vos comptes">externe</span>'}</td>`).join('')}
+      <td class="num ${t.peer ? '' : t.amount < 0 ? 'neg' : 'pos'}">${t.peer ? '⇄ ' : ''}${money(t.amount)}</td>${rawCells(t)}
       <td class="actions"><button class="icon" title="Modifier" data-act="txEdit" data-id="${t.id}">✎</button><button class="icon" title="Supprimer" data-act="txDel" data-id="${t.id}">✕</button></td></tr>`;
   const ptRow = p => `<tr class="pt"><td></td><td class="nowrap"><b>${fmtDate(p.date)}</b></td><td class="nowrap">${esc(acctName(p.acct))}</td>
-      <td colspan="3"><b>🎯 Pointage — solde réel du compte</b>${p.note ? ` <span class="muted small">${esc(p.note)}</span>` : ''}<div class="small">${recStatus(recByPt.get(p.id))}</div></td>
+      <td colspan="6"><b>🎯 Pointage — solde réel du compte</b>${p.note ? ` <span class="muted small">${esc(p.note)}</span>` : ''}<div class="small">${recStatus(recByPt.get(p.id))}</div></td>
       <td class="num"><b>${money(p.balance)}</b></td>${rawCols.length ? `<td class="raw" colspan="${rawCols.length}"></td>` : ''}
       <td class="actions"><button class="icon" title="Modifier" data-act="ptEdit" data-id="${p.id}">✎</button><button class="icon" title="Supprimer" data-act="ptDel" data-id="${p.id}">✕</button></td></tr>`;
   $('#txTable').innerHTML = `<div class="summary">${list.length} opération(s)${pts.length ? ` · ${pts.length} pointage(s)` : ''} · Revenus <b class="pos">${money(inc)}</b> · Dépenses <b class="neg">${money(exp)}</b> · Solde <b>${signMoney(inc - exp)}</b> <span class="small">(transferts exclus)</span></div>
-  ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Date dépense</th><th title="Date de passage sur le compte (date comptable / de valeur), utilisée pour le rapprochement">Date pointage</th><th>Compte</th><th>Libellé</th><th>Catégorie</th><th>Sous-catégorie</th><th class="num">Montant</th>
+  ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Date dépense</th><th title="Date de passage sur le compte (date comptable / de valeur), utilisée pour le rapprochement">Date prélèvement</th><th>Compte</th><th>Libellé simplifié</th><th>Libellé original</th><th>Catégorie</th><th>Sous-catégorie</th><th title="Compte débité : le compte de l’opération en cas de débit">Origine</th><th title="Compte crédité : le compte de l’opération en cas de crédit">Destination</th><th class="num">Montant</th>
     ${rawCols.map(c => `<th class="raw" title="Donnée brute reçue du fichier">${esc(c)}</th>`).join('')}<th></th></tr></thead><tbody>
     ${shown.map(r => r.t ? txRow(r.t) : ptRow(r.p)).join('')}
   </tbody></table></div>${rows.length > 500 ? '<p class="muted small">Affichage limité aux 500 lignes les plus récentes — affinez les filtres.</p>' : ''}
@@ -835,7 +864,7 @@ function renderTxTable() {
 function renderRecon() {
   const el = $('#recon'); if (!el) return;
   const accts = S.accounts.filter(a => !UI.txAcct || a.id === UI.txAcct).map(a => ({ a, ...reconcile(a.id) })).filter(x => x.pts.length);
-  el.innerHTML = `<p class="muted small" style="margin-top:-6px">Saisissez régulièrement le solde réel de chaque compte (bouton « Pointage de solde »). Entre deux pointages, la somme des opérations relevées (selon leur date de pointage) doit égaler la variation du solde ; sinon, une opération manque, est en double ou a un mauvais montant.</p>
+  el.innerHTML = `<p class="muted small" style="margin-top:-6px">Saisissez régulièrement le solde réel de chaque compte (bouton « Pointage de solde »). Entre deux pointages, la somme des opérations relevées (selon leur date de prélèvement) doit égaler la variation du solde ; sinon, une opération manque, est en double ou a un mauvais montant.</p>
     ${accts.length ? accts.map(({ a, periods, last, estimate }) => `<h4>${esc(a.name)}</h4>
       <p class="small" style="margin:0 0 6px">Dernier pointage le ${fmtDate(last.date)} : <b>${money(last.balance)}</b> · Solde estimé avec les opérations relevées depuis : <b>${money(estimate)}</b></p>
       ${periods.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Du</th><th>Au</th><th class="num">Solde début</th><th class="num">Solde fin</th><th class="num">Variation</th><th class="num">Opérations relevées</th><th class="num">Écart</th></tr></thead><tbody>
@@ -846,7 +875,7 @@ function renderRecon() {
     : empty('Aucun pointage de solde pour l’instant.')}`;
 }
 function txModal(t) {
-  const e = t || { id: '', date: today(), pdate: '', acct: defaultAcct(), label: '', amount: -0, cat: '', sub: '', note: '' };
+  const e = t || { id: '', date: today(), pdate: '', acct: defaultAcct(), rawLabel: '', label: '', amount: -0, cat: '', sub: '', peer: '', note: '' };
   openModal(t ? 'Modifier l’opération' : 'Nouvelle opération', `
     <form data-form="txSave" class="stack">
       <input type="hidden" name="id" value="${esc(e.id)}">
@@ -857,9 +886,17 @@ function txModal(t) {
       </div>
       <div class="row">
         <label>Date de la dépense<input type="date" name="date" value="${esc(e.date)}" required></label>
-        <label>Date de pointage<input type="date" name="pdate" value="${esc(e.pdate)}" title="Date de passage sur le compte. Vide = date de la dépense."></label>
+        <label>Date de prélèvement<input type="date" name="pdate" value="${esc(e.pdate)}" title="Date de passage sur le compte. Vide = date de la dépense."></label>
       </div>
-      <label>Libellé<input name="label" value="${esc(e.label)}" required maxlength="200"></label>
+      <div class="row">
+        <label>Libellé simplifié<input name="label" value="${esc(e.label)}" required maxlength="120"></label>
+        <label>Libellé original (brut)<input name="rawLabel" value="${esc(e.rawLabel === e.label ? '' : e.rawLabel)}" maxlength="200" placeholder="Vide = libellé simplifié"></label>
+      </div>
+      <div class="row">
+        <label>Transfert interne — autre compte<select name="peer"><option value="">Aucun (opération externe)</option>${acctOptions(e.peer)}</select></label>
+        ${t ? '' : '<label class="inline" style="flex:1 1 220px"><input type="checkbox" name="mirror" checked> Créer aussi l’opération inverse sur l’autre compte</label>'}
+      </div>
+      <p class="muted small" style="margin:0">Débit : compte d’origine = compte de l’opération, destination = autre compte. Crédit : l’inverse. Un transfert interne est exclu des revenus et des dépenses.</p>
       <div class="row">
         <label>Catégorie<select name="cat" data-chg="formCat"><option value="">Automatique (règles)</option>${catOptions(e.cat)}</select></label>
         <label>Sous-catégorie<select name="sub">${subOptions(e.cat || 'none', e.sub)}</select></label>
@@ -869,8 +906,8 @@ function txModal(t) {
       <div class="row"><span class="spacer"></span><button class="btn primary" type="submit">Enregistrer</button></div>
     </form>`);
 }
-function ptModal(p) {
-  const e = p || { id: '', acct: defaultAcct(), date: today(), balance: '', note: '' };
+function ptModal(p, acct) {
+  const e = p || { id: '', acct: acct || defaultAcct(), date: today(), balance: '', note: '' };
   openModal(p ? 'Modifier le pointage' : 'Nouveau pointage de solde', `
     <form data-form="ptSave" class="stack">
       <input type="hidden" name="id" value="${esc(e.id)}">
@@ -886,7 +923,7 @@ function ptModal(p) {
 }
 const findTx = id => S.transactions.find(t => t.id === id);
 function offerRule(t, msg) {
-  if (!S.rules.some(r => norm(t.label).includes(norm(r.kw)) && r.cat === t.cat && (r.sub || '') === t.sub))
+  if (!S.rules.some(r => norm(txText(t)).includes(norm(r.kw)) && r.cat === t.cat && (r.sub || '') === t.sub))
     toast(msg, '', { label: 'Créer une règle', attrs: `data-act="ruleFromTx" data-id="${t.id}"` });
 }
 
@@ -957,7 +994,7 @@ function startCsvImport(rows) {
   const isDateCol = i => /date/.test(h[i]) || !!parseDate(sample[i]);
   // les colonnes « Date opération » / « Date valeur » ne doivent pas être prises pour un libellé ou un montant
   const find = (re, fb = -1, dateOk = false) => { const i = h.findIndex((x, j) => re.test(x) && (dateOk || !isDateCol(j))); return i >= 0 ? i : fb; };
-  // date de la dépense = « date opération » de préférence ; date de pointage = date comptable / de valeur
+  // date de la dépense = « date opération » de préférence ; date de prélèvement = date comptable / de valeur
   let dateI = find(/date.*(op|achat|depense|transac)/, -1, true);
   if (dateI < 0) dateI = find(/date/, sample.findIndex(c => parseDate(c)), true);
   const pdateI = h.findIndex((x, j) => j !== dateI && /comptab|pointage|val/.test(x) && isDateCol(j));
@@ -978,7 +1015,7 @@ function startCsvImport(rows) {
       </div>
       <div class="row">
         <label>Date de la dépense<select name="date">${opts(g.date)}</select></label>
-        <label>Date de pointage<select name="pdate">${opts(g.pdate).replace('>—<', '>Identique à la date de la dépense<')}</select></label>
+        <label>Date de prélèvement<select name="pdate">${opts(g.pdate).replace('>—<', '>Identique à la date de la dépense<')}</select></label>
       </div>
       <div class="row">
         <label>Libellé<select name="label">${opts(g.label)}</select></label>
@@ -1013,7 +1050,7 @@ function csvRows(map) {
     const label = [r[map.label], map.label2 >= 0 ? r[map.label2] : ''].filter(Boolean).join(' — ').replace(/\s+/g, ' ').trim();
     if (!date || amount === null || !label) { bad++; continue; }
     const raw = Object.fromEntries(CSV.rawKeys.map((k, i) => [k, String(r[i] ?? '').slice(0, 500)]));
-    ok.push({ date, pdate, label: label.slice(0, 200), amount: round2(map.invert ? -amount : amount), raw });
+    ok.push({ date, pdate, rawLabel: label.slice(0, 200), label: simplifyLabel(label), amount: round2(map.invert ? -amount : amount), raw });
   }
   return { ok, bad };
 }
@@ -1022,9 +1059,151 @@ function csvPreview(f) {
   $$('[data-m]', f).forEach(el => { el.hidden = el.dataset.m !== map.mode; });
   const { ok, bad } = csvRows(map);
   $('#csvPrev').innerHTML = `<div class="summary">${ok.length} opération(s) valide(s)${bad ? ` · <span class="warn">${bad} ligne(s) ignorée(s) (date, montant ou libellé illisible)</span>` : ''}</div>
-    <div class="table-wrap"><table class="tbl"><thead><tr><th>Date dépense</th><th>Date pointage</th><th>Libellé</th><th>Catégorie auto</th><th class="num">Montant</th></tr></thead><tbody>
-    ${ok.slice(0, 6).map(t => { const c = classify(t.label); return `<tr><td>${fmtDate(t.date)}</td><td>${fmtDate(t.pdate)}</td><td>${esc(t.label)}</td><td>${catLabel(c.cat, c.sub)}</td><td class="num ${t.amount < 0 ? 'neg' : 'pos'}">${esc(fmtEur(t.amount))}</td></tr>`; }).join('')}
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Date dépense</th><th>Date prélèvement</th><th>Libellé simplifié / original</th><th>Catégorie auto</th><th class="num">Montant</th></tr></thead><tbody>
+    ${ok.slice(0, 6).map(t => { const c = classify(txText(t)); return `<tr><td>${fmtDate(t.date)}</td><td>${fmtDate(t.pdate)}</td><td>${esc(t.label)}<div class="muted small">${esc(t.rawLabel)}</div></td><td>${catLabel(c.cat, c.sub)}</td><td class="num ${t.amount < 0 ? 'neg' : 'pos'}">${esc(fmtEur(t.amount))}</td></tr>`; }).join('')}
     </tbody></table></div>`;
+}
+
+// =====================================================================
+// Analyse des dépenses
+// =====================================================================
+const GRANS = [['week', 'Semaine'], ['month', 'Mois'], ['quarter', 'Trimestre'], ['year', 'Année']];
+function weekStart(iso) { const d = new Date(iso + 'T12:00:00'); return addDays(iso, -((d.getDay() + 6) % 7)); }
+function bucketOf(iso, gran) {
+  if (gran === 'week') return weekStart(iso);
+  if (gran === 'quarter') return `${iso.slice(0, 4)}-T${Math.floor((+iso.slice(5, 7) - 1) / 3) + 1}`;
+  return gran === 'year' ? iso.slice(0, 4) : iso.slice(0, 7);
+}
+function bucketLabel(k, gran) {
+  if (gran === 'week') return fmtDate(k).slice(0, 5);
+  if (gran === 'quarter') return k.slice(5) + ' ' + k.slice(2, 4);
+  return gran === 'year' ? k : shortMonth(k) + ' ' + k.slice(2, 4);
+}
+// toutes les périodes de la plage, y compris celles sans opération
+function bucketsBetween(from, to, gran) {
+  const out = [], end = to; let d = from;
+  if (gran === 'week') d = weekStart(from);
+  while (d <= end && out.length < 600) {
+    const k = bucketOf(d, gran); if (out[out.length - 1] !== k) out.push(k);
+    d = gran === 'week' ? addDays(d, 7) : addDays(d, gran === 'month' ? 28 : gran === 'quarter' ? 85 : 360);
+  }
+  const lastK = bucketOf(end, gran); if (out[out.length - 1] !== lastK) out.push(lastK);
+  return [...new Set(out)];
+}
+function anRange() {
+  const ms = allMonths(), a = UI.an;
+  if (!a.to) a.to = ms[0];
+  if (!a.from) a.from = ms[Math.min(ms.length - 1, 11)] || a.to;
+  if (a.from > a.to) [a.from, a.to] = [a.to, a.from];
+  const [y, m] = a.to.split('-').map(Number);
+  return { from: a.from + '-01', to: `${a.to}-${pad(new Date(y, m, 0).getDate())}` };
+}
+// opérations retenues et montant compté (dépenses en positif, ou revenus) — transferts exclus
+function anRows() {
+  const a = UI.an, { from, to } = anRange();
+  return S.transactions.filter(t => t.date >= from && t.date <= to && !isTransfer(t) && (!a.acct || t.acct === a.acct)
+    && catById(t.cat).kind === a.kind && !a.off.has(catById(t.cat).id))
+    .map(t => ({ t, v: a.kind === 'depense' ? -t.amount : t.amount }));
+}
+function stackedBars(labels, series) {
+  const W = 640, H = 260, L = 52, R = 8, T = 12, B = 26, iw = W - L - R, ih = H - T - B;
+  const tot = labels.map((_, i) => series.reduce((s, x) => s + Math.max(0, x.values[i] || 0), 0));
+  const max = niceMax(Math.max(1, ...tot)); let g = '';
+  for (let i = 0; i <= 4; i++) { const y = T + ih - ih * i / 4; g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" class="grid"/><text x="${L - 6}" y="${y + 4}" class="axis" text-anchor="end">${compact(max * i / 4)}</text>`; }
+  const gw = iw / labels.length, bw = Math.max(2, Math.min(34, gw * 0.7)), step = Math.max(1, Math.ceil(labels.length / 12));
+  labels.forEach((lab, i) => {
+    let y = T + ih; const x = L + gw * i + (gw - bw) / 2;
+    series.forEach(s => {
+      const v = Math.max(0, s.values[i] || 0), h = ih * v / max; if (!h) return; y -= h;
+      g += `<rect x="${x}" y="${y}" width="${bw}" height="${h}" style="fill:${s.color}"><title>${esc(s.name)} · ${esc(lab)} : ${esc(fmtEur(v))}</title></rect>`;
+    });
+    g += `<rect x="${x}" y="${T + ih - ih * tot[i] / max}" width="${bw}" height="${ih * tot[i] / max}" fill="transparent"><title>${esc(lab)} — total : ${esc(fmtEur(tot[i]))}</title></rect>`;
+    if (i % step === 0) g += `<text x="${L + gw * i + gw / 2}" y="${H - 8}" class="axis" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img">${g}</svg>${legend(series)}`;
+}
+const FREQS = [{ name: 'Hebdomadaire', days: 7, tol: 2 }, { name: 'Mensuelle', days: 30.4, tol: 5 }, { name: 'Bimestrielle', days: 61, tol: 8 },
+  { name: 'Trimestrielle', days: 91, tol: 12 }, { name: 'Semestrielle', days: 182, tol: 20 }, { name: 'Annuelle', days: 365, tol: 30 }];
+const median = a => { const s = [...a].sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : 0; };
+// Dépenses récurrentes : même libellé simplifié sur un même compte, à intervalle régulier, encore actives.
+function recurringExpenses() {
+  const groups = new Map(), now = Date.now();
+  for (const t of S.transactions) {
+    if (t.amount >= 0 || isTransfer(t)) continue;
+    const k = t.acct + '|' + norm(t.label); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t);
+  }
+  const out = [];
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    const gaps = list.slice(1).map((t, i) => (Date.parse(t.date) - Date.parse(list[i].date)) / 864e5), med = median(gaps);
+    const freq = FREQS.find(f => Math.abs(med - f.days) <= f.tol);
+    if (!freq || list.length < (freq.days > 150 ? 2 : 3)) continue;
+    if (gaps.filter(d => Math.abs(d - freq.days) <= freq.tol).length / gaps.length < 0.6) continue;
+    const last = list[list.length - 1];
+    if ((now - Date.parse(last.date)) / 864e5 > freq.days * 2 + freq.tol) continue; // n'apparaît plus
+    const amts = list.slice(-6).map(t => -t.amount), avg = amts.reduce((s, v) => s + v, 0) / amts.length;
+    const sd = Math.sqrt(amts.reduce((s, v) => s + (v - avg) ** 2, 0) / amts.length);
+    out.push({ t: last, freq, n: list.length, avg, lastAmt: -last.amount, next: addDays(last.date, Math.round(freq.days)), yearly: avg * 365 / freq.days, variable: sd / avg > 0.1 });
+  }
+  return out.sort((a, b) => b.yearly - a.yearly);
+}
+function renderAnalysis() {
+  const a = UI.an, { from, to } = anRange(), ms = allMonths().slice().reverse();
+  const cats = S.categories.filter(c => c.kind === a.kind), rows = anRows();
+  const buckets = bucketsBetween(from, to, a.gran), bIdx = new Map(buckets.map((b, i) => [b, i]));
+  // agrégation catégorie (et sous-catégorie) × période
+  const agg = new Map();
+  const cell = (key, bi, v) => { if (!agg.has(key)) agg.set(key, new Array(buckets.length).fill(0)); agg.get(key)[bi] += v; };
+  rows.forEach(({ t, v }) => { const bi = bIdx.get(bucketOf(t.date, a.gran)); if (bi === undefined) return; cell(t.cat, bi, v); if (a.subs) cell(t.cat + '\u0000' + (t.sub || ''), bi, v); });
+  const sum = arr => arr.reduce((s, v) => s + v, 0);
+  const catRows = cats.filter(c => agg.has(c.id)).map(c => ({ c, vals: agg.get(c.id), total: sum(agg.get(c.id)) })).sort((x, y) => y.total - x.total);
+  const colTot = buckets.map((_, i) => sum(catRows.map(r => r.vals[i]))), grand = sum(colTot);
+  const maxCell = Math.max(1, ...catRows.flatMap(r => r.vals));
+  const heat = v => v > 0 ? ` style="background:color-mix(in srgb, var(--accent) ${Math.round(6 + 30 * v / maxCell)}%, transparent)"` : '';
+  const fmtCell = v => v ? esc(fmtEur(v, false)) : '<span class="muted">·</span>';
+  const subRows = r => !a.subs ? '' : [...agg.keys()].filter(k => k.startsWith(r.c.id + '\u0000')).map(k => ({ s: k.split('\u0000')[1], vals: agg.get(k) }))
+    .sort((x, y) => sum(y.vals) - sum(x.vals)).map(x => `<tr class="small"><td style="padding-left:26px" class="muted">${esc(x.s || 'Sans sous-catégorie')}</td>${x.vals.map(v => `<td class="num muted">${fmtCell(v)}</td>`).join('')}<td class="num muted">${esc(fmtEur(sum(x.vals), false))}</td><td class="num muted">${esc(fmtEur(sum(x.vals) / buckets.length, false))}</td></tr>`).join('');
+  const top = catRows.slice(0, 8), rest = catRows.slice(8);
+  const series = top.map(r => ({ name: r.c.name, color: r.c.color, values: r.vals }))
+    .concat(rest.length ? [{ name: 'Autres', color: '#9aa0a8', values: buckets.map((_, i) => sum(rest.map(r => r.vals[i]))) }] : []);
+  const rec = a.kind === 'depense' ? recurringExpenses().filter(r => !a.acct || r.t.acct === a.acct) : [];
+  const word = a.kind === 'depense' ? 'Dépenses' : 'Revenus';
+  $('#tab-an').innerHTML = `
+    <div class="toolbar"><h2>Analyse des ${word.toLowerCase()}</h2></div>
+    <div class="card">
+      <div class="filters" style="align-items:flex-end">
+        <label>Du<select data-chg="anFrom">${ms.map(m => `<option value="${m}"${m === a.from ? ' selected' : ''}>${esc(monthLabel(m))}</option>`).join('')}</select></label>
+        <label>Au<select data-chg="anTo">${ms.map(m => `<option value="${m}"${m === a.to ? ' selected' : ''}>${esc(monthLabel(m))}</option>`).join('')}</select></label>
+        <label>Regrouper par<select data-chg="anGran">${GRANS.map(([k, l]) => `<option value="${k}"${k === a.gran ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label>Type<select data-chg="anKind"><option value="depense"${a.kind === 'depense' ? ' selected' : ''}>Dépenses</option><option value="revenu"${a.kind === 'revenu' ? ' selected' : ''}>Revenus</option></select></label>
+        <label>Compte<select data-chg="anAcct"><option value="">Tous les comptes</option>${acctOptions(a.acct)}</select></label>
+        <label class="inline small"><input type="checkbox" data-chg="anSubs"${a.subs ? ' checked' : ''}> Détailler les sous-catégories</label>
+      </div>
+      <details${a.off.size ? ' open' : ''}><summary>Catégories affichées : ${cats.length - cats.filter(c => a.off.has(c.id)).length} / ${cats.length}</summary>
+        <div class="presets" style="margin:8px 0"><button class="btn" data-act="anAll">Toutes</button><button class="btn" data-act="anNone">Aucune</button></div>
+        <div class="budget-grid">${cats.map(c => `<label class="inline"><input type="checkbox" data-chg="anCat" data-id="${esc(c.id)}"${a.off.has(c.id) ? '' : ' checked'}><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</label>`).join('')}</div>
+      </details>
+    </div>
+    <div class="card"><h3>Tableau croisé — ${word.toLowerCase()} par catégorie et par ${esc(GRANS.find(g => g[0] === a.gran)[1].toLowerCase())}</h3>
+      ${catRows.length ? `<div class="table-wrap"><table class="tbl pivot"><thead><tr><th>Catégorie</th>${buckets.map(b => `<th class="num">${esc(bucketLabel(b, a.gran))}</th>`).join('')}<th class="num">Total</th><th class="num">Moyenne</th></tr></thead><tbody>
+        ${catRows.map(r => `<tr><td class="nowrap"><span class="dot" style="background:${r.c.color}"></span>${esc(r.c.name)}</td>${r.vals.map(v => `<td class="num"${heat(v)}>${fmtCell(v)}</td>`).join('')}<td class="num"><b>${esc(fmtEur(r.total, false))}</b></td><td class="num">${esc(fmtEur(r.total / buckets.length, false))}</td></tr>${subRows(r)}`).join('')}
+      </tbody><tfoot><tr><th>Total</th>${colTot.map(v => `<th class="num">${esc(fmtEur(v, false))}</th>`).join('')}<th class="num">${esc(fmtEur(grand, false))}</th><th class="num">${esc(fmtEur(grand / buckets.length, false))}</th></tr></tfoot></table></div>
+      <p class="muted small" style="margin-bottom:0">Selon la date de la dépense. Transferts internes exclus. Les remboursements viennent en déduction de leur catégorie.</p>` : empty('Aucune opération sur cette période avec ces filtres.')}
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>${word} par catégorie · ${esc(monthLabel(a.from))} – ${esc(monthLabel(a.to))}</h3>${catRows.length ? donut(catRows.filter(r => r.total > 0).map(r => ({ label: r.c.name, value: r.total, color: r.c.color }))) : empty('Rien à afficher.')}</div>
+      <div class="card"><h3>${word} par ${esc(GRANS.find(g => g[0] === a.gran)[1].toLowerCase())}</h3>${catRows.length ? stackedBars(buckets.map(b => bucketLabel(b, a.gran)), series) : empty('Rien à afficher.')}</div>
+    </div>
+    ${a.kind === 'depense' ? `<div class="card" style="margin-top:16px"><h3>🔁 Dépenses récurrentes</h3>
+      ${rec.length ? `<p class="small" style="margin-top:-6px">${rec.length} dépense(s) récurrente(s) détectée(s) · coût estimé <b>${money(rec.reduce((s, r) => s + r.yearly, 0) / 12, false)} / mois</b>, soit ${money(rec.reduce((s, r) => s + r.yearly, 0), false)} / an.</p>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>Libellé</th><th>Compte</th><th>Catégorie</th><th>Fréquence</th><th class="num">Occurrences</th><th class="num">Montant moyen</th><th class="num">Dernier</th><th>Prochaine (estimée)</th><th class="num">Coût annuel</th></tr></thead><tbody>
+        ${rec.map(r => `<tr><td>${esc(r.t.label)}</td><td class="nowrap">${esc(acctName(r.t.acct))}</td><td>${catLabel(r.t.cat, r.t.sub)}</td><td>${esc(r.freq.name)}</td><td class="num">${r.n}</td>
+          <td class="num">${money(r.avg)}${r.variable ? ' <span class="muted small" title="Le montant varie d’une fois à l’autre">≈</span>' : ''}</td><td class="num">${money(r.lastAmt)} <span class="muted small">${fmtDate(r.t.date)}</span></td>
+          <td class="nowrap">${fmtDate(r.next)}</td><td class="num"><b>${money(r.yearly, false)}</b></td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="muted small" style="margin-bottom:0">Détection automatique : même libellé simplifié sur le même compte, au moins 3 fois à intervalle régulier (2 fois pour une fréquence semestrielle ou annuelle), et toujours en cours.</p>`
+      : empty('Aucune dépense récurrente détectée pour l’instant (il faut au moins 3 occurrences régulières).')}</div>` : ''}`;
 }
 
 // =====================================================================
@@ -1060,7 +1239,7 @@ function renderAccounts() {
         <td class="nowrap">${last ? `${fmtDate(last.date)} · ${money(last.balance)}` : '<span class="muted">aucun</span>'}${gaps ? ` <span class="neg small" title="Périodes dont le rapprochement présente un écart">⚠ ${gaps} écart(s)</span>` : ''}</td>
         <td class="num">${last ? money(estimate) : '<span class="muted">—</span>'}</td>
         <td class="num">${nh ? `${money(inv)} <span class="muted small">(${nh})</span>` : '<span class="muted">—</span>'}</td>
-        <td class="actions">${nh ? `<button class="icon" title="Voir les placements" data-act="acctShowInv" data-id="${esc(a.id)}">📈</button>` : ''}<button class="icon" title="Voir les opérations" data-act="acctShowTx" data-id="${esc(a.id)}">☰</button><button class="icon" title="Modifier" data-act="acctEdit" data-id="${esc(a.id)}">✎</button><button class="icon" title="Supprimer" data-act="acctDel" data-id="${esc(a.id)}">✕</button></td></tr>`).join('')}
+        <td class="actions">${nh ? `<button class="icon" title="Voir les placements" data-act="acctShowInv" data-id="${esc(a.id)}">📈</button>` : ''}<button class="icon" title="Voir les opérations" data-act="acctShowTx" data-id="${esc(a.id)}">☰</button><button class="icon" title="Saisir le solde à date (pointage)" data-act="acctPoint" data-id="${esc(a.id)}">🎯</button><button class="icon" title="Modifier" data-act="acctEdit" data-id="${esc(a.id)}">✎</button><button class="icon" title="Supprimer" data-act="acctDel" data-id="${esc(a.id)}">✕</button></td></tr>`).join('')}
       </tbody></table></div></div>`).join('')}
     <p class="muted small">Le solde estimé part du dernier pointage de solde du compte et ajoute les opérations relevées depuis. Saisissez les pointages depuis l’onglet Dépenses.</p>`;
 }
@@ -1096,6 +1275,9 @@ function renderInv() {
     return Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: PALETTE[i % PALETTE.length] }));
   };
   const hs = [...all].sort((a, b) => hValue(b) - hValue(a));
+  // un portefeuille par compte (sous-total en tête), sauf quand on regarde un seul compte
+  const portfolios = UI.invAcct ? [[null, hs]] : S.accounts.map(a => [a, hs.filter(h => h.acct === a.id)]).filter(([, l]) => l.length)
+    .sort((x, y) => y[1].reduce((s, h) => s + hValue(h), 0) - x[1].reduce((s, h) => s + hValue(h), 0));
   const snaps = S.snapshots.slice(-60);
   $('#tab-inv').innerHTML = `
     <div class="toolbar"><h2>Investissements & épargne</h2><span class="spacer"></span>
@@ -1108,7 +1290,11 @@ function renderInv() {
       ${kpi('Plus-values réalisées', signMoney(realized, false), 'cumul des ventes')}
     </div>
     <div class="card">${hs.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Placement</th><th>Compte</th><th>Classe</th><th class="num">Quantité</th><th class="num">PRU</th><th class="num">Cours actuel</th><th class="num">Valeur</th><th class="num">+/- latente</th><th class="num">Poids</th><th></th></tr></thead><tbody>
-      ${hs.map(h => { const v = hValue(h), g = v - hCost(h); return `<tr>
+      ${portfolios.map(([pa, list]) => (pa ? (() => { const pv = list.reduce((s, h) => s + hValue(h), 0), pg = pv - list.reduce((s, h) => s + hCost(h), 0);
+        return `<tr class="grp"><td colspan="6"><b>📁 ${esc(pa.name)}</b> <span class="muted small">${esc([pa.type, pa.bank].filter(Boolean).join(' · '))} · ${list.length} ligne(s)</span></td>
+          <td class="num"><b>${money(pv)}</b></td><td class="num">${signMoney(pg)}</td><td class="num">${nw > 0 ? pct(pv / nw) : '—'}</td>
+          <td class="actions"><button class="icon" title="Voir ce portefeuille seul" data-act="acctShowInv" data-id="${esc(pa.id)}">🔍</button></td></tr>`; })() : '')
+      + list.map(h => { const v = hValue(h), g = v - hCost(h); return `<tr>
         <td><b>${esc(h.name)}</b>${h.ticker ? ` <span class="muted small">${esc(h.ticker)}</span>` : ''}<div class="muted small">MAJ ${h.updated ? fmtDate(h.updated) : '—'}</div></td>
         <td>${esc(acctOf(h.acct).name)}<div class="muted small">${esc([acctOf(h.acct).type, acctOf(h.acct).bank].filter(Boolean).join(' · '))}</div></td><td>${esc(h.cls)}</td>
         <td class="num">${esc(NUM.format(h.qty))}</td><td class="num">${money(h.pru)}</td>
@@ -1116,7 +1302,7 @@ function renderInv() {
         <td class="num"><b>${money(v)}</b></td>
         <td class="num">${signMoney(g)}<div class="small ${g >= 0 ? 'pos' : 'neg'}">${hCost(h) > 0 ? pct(g / hCost(h)) : ''}</div></td>
         <td class="num">${nw > 0 ? pct(v / nw) : '—'}</td>
-        <td class="actions"><button class="icon" title="Achat / vente" data-act="invTrade" data-id="${h.id}">⇄</button><button class="icon" title="Modifier" data-act="invEdit" data-id="${h.id}">✎</button><button class="icon" title="Supprimer" data-act="invDel" data-id="${h.id}">✕</button></td></tr>`; }).join('')}
+        <td class="actions"><button class="icon" title="Achat / vente" data-act="invTrade" data-id="${h.id}">⇄</button><button class="icon" title="Modifier" data-act="invEdit" data-id="${h.id}">✎</button><button class="icon" title="Supprimer" data-act="invDel" data-id="${h.id}">✕</button></td></tr>`; }).join('')).join('')}
       </tbody></table></div>` : empty('Aucun placement. Ajoutez vos comptes-titres, PEA, assurance-vie, livrets, crypto…')}
       <p class="muted small" style="margin-bottom:0">Les cours sont saisis à la main (aucune connexion à des services externes, par conception). Astuce : pour un livret ou un fonds euros, quantité = 1, PRU = total versé, cours = solde actuel.</p>
     </div>
@@ -1175,10 +1361,92 @@ const SIM_FIELDS = [
   ['goal', 'Objectif (€ d’aujourd’hui)', 0, 1000], ['wr', 'Taux de retrait à terme (%)', 0.5, 0.1],
 ];
 const PRESETS = [['Prudent', 3, 4], ['Équilibré', 5, 10], ['Dynamique', 7, 16]];
+// ---------- État des comptes en fin d'année ----------
+// Hypothèses par défaut (modifiables) : ordres de grandeur, pas des taux garantis.
+const DEFAULT_RATE = { 'Livret A': 1.5, LDDS: 1.5, LEP: 2.5, 'Livret Jeune': 2, CEL: 1, PEL: 2, 'Livret d’épargne (fiscalisé)': 1, 'Compte à terme': 2,
+  PEA: 5, 'PEA-PME': 5, CTO: 5, 'Assurance-vie': 3, PER: 4, 'Épargne salariale (PEE / PERCOL)': 4, Immobilier: 2 };
+const projHyp = a => ({ rate: DEFAULT_RATE[a.type] ?? 0, contrib: 0, ...(S.proj.hyp[a.id] || {}) });
+// solde d'un compte à une date, d'après son dernier pointage et les opérations prélevées depuis (null sans pointage)
+function balanceAt(acct, iso) {
+  const last = S.pointages.filter(p => p.acct === acct && p.date <= iso).sort((a, b) => a.date.localeCompare(b.date)).pop();
+  if (!last) return null;
+  return round2(last.balance + S.transactions.filter(t => t.acct === acct && t.pdate > last.date && t.pdate <= iso).reduce((s, t) => s + t.amount, 0));
+}
+// valeur actuelle : placements rattachés + solde issu des pointages ; à défaut, dernière valeur historique saisie
+function currentValue(a) {
+  const inv = S.holdings.filter(h => h.acct === a.id).reduce((s, h) => s + hValue(h), 0), bal = balanceAt(a.id, today());
+  if (bal !== null || inv) return round2(inv + (bal || 0));
+  const hist = S.proj.hist[a.id] || {}, ys = Object.keys(hist).sort();
+  return ys.length ? hist[ys[ys.length - 1]] : 0;
+}
+function pastValue(a, y) {
+  const m = (S.proj.hist[a.id] || {})[y]; if (Number.isFinite(m)) return { v: m, src: 'saisi' };
+  const b = balanceAt(a.id, `${y}-12-31`); return b === null ? null : { v: b, src: 'pointages' };
+}
+function yearProjection() {
+  const Y = +today().slice(0, 4), H = Math.round(clamp(S.proj.years, 1, 50));
+  const dataYears = [...S.pointages.map(p => +p.date.slice(0, 4)), ...Object.values(S.proj.hist).flatMap(h => Object.keys(h).map(Number))];
+  const since = Number.isInteger(S.proj.since) ? S.proj.since : Math.max(Y - 10, Math.min(Y - 2, ...dataYears));
+  const pastYears = []; for (let y = since; y < Y; y++) pastYears.push(y);
+  const futYears = []; for (let i = 0; i <= H; i++) futYears.push(Y + i);
+  const f = Math.max(0, (new Date(Y, 11, 31) - new Date()) / (365 * 864e5)); // part de l'année restant à courir
+  const order = ACCOUNT_TYPES.map(([fam]) => fam);
+  const rows = [...S.accounts].sort((a, b) => order.indexOf(typeFamily(a.type)) - order.indexOf(typeFamily(b.type))).map(a => {
+    const h = projHyp(a), r = h.rate / 100, c = h.contrib, cur = currentValue(a);
+    let v = cur * Math.pow(1 + r, f) + c * f; const fut = [round2(v)];
+    for (let i = 1; i <= H; i++) { v = v * (1 + r) + c * (1 + r / 2); fut.push(round2(v)); } // versements étalés sur l'année
+    return { a, h, cur, past: pastYears.map(y => pastValue(a, y)), fut };
+  });
+  return { Y, since, pastYears, futYears, rows };
+}
+function projFoot(P) {
+  const pastTot = P.pastYears.map((_, i) => P.rows.reduce((s, r) => s + (r.past[i] ? r.past[i].v : 0), 0));
+  const pastMissing = P.pastYears.map((_, i) => P.rows.some(r => !r.past[i]));
+  const futTot = P.futYears.map((_, i) => P.rows.reduce((s, r) => s + r.fut[i], 0));
+  return { pastTot, pastMissing, futTot, html: `<tr><th>Total</th>${pastTot.map((v, i) => `<th class="num"${pastMissing[i] ? ' title="Certains comptes n’ont pas de valeur pour cette année"' : ''}>${esc(fmtEur(v, false))}${pastMissing[i] ? '<span class="muted">*</span>' : ''}</th>`).join('')}${futTot.map(v => `<th class="num">${esc(fmtEur(v, false))}</th>`).join('')}</tr>` };
+}
+function projChart(P, F) {
+  const labels = [...P.pastYears, ...P.futYears].map(String);
+  return lineChart({ labels, series: [{ name: 'Total des comptes au 31/12', color: 'var(--accent)', values: [...F.pastTot, ...F.futTot] }] })
+    + `<p class="muted small" style="margin:4px 0 0">Jusqu’en ${P.Y - 1} : historique. À partir de ${P.Y} : projection selon vos hypothèses.</p>`;
+}
+function renderProjTable() {
+  const P = yearProjection(), F = projFoot(P), el = $('#projTable'); if (!el) return;
+  el.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th>
+      ${P.pastYears.map(y => `<th class="num">${y}</th>`).join('')}
+      ${P.futYears.map((y, i) => `<th class="num" style="font-style:italic">${y}${i === 0 ? ' <span class="muted small">(est.)</span>' : ''}</th>`).join('')}</tr></thead>
+    <tbody>${P.rows.map(r => `<tr><td class="nowrap"><b>${esc(r.a.name)}</b><div class="muted small">${esc([r.a.type, r.a.bank].filter(Boolean).join(' · '))}</div></td>
+      ${r.past.map((p, i) => `<td class="num"><input class="inline-num" type="number" step="0.01" value="${p && p.src === 'saisi' ? p.v : ''}" placeholder="${p ? Math.round(p.v) : '—'}" title="${p && p.src === 'pointages' ? 'Calculé à partir des pointages — saisissez une valeur pour la remplacer' : 'Solde au 31/12/' + P.pastYears[i]}" data-chg="projHist" data-acct="${esc(r.a.id)}" data-year="${P.pastYears[i]}"></td>`).join('')}
+      ${r.fut.map(v => `<td class="num" style="font-style:italic">${esc(fmtEur(v, false))}</td>`).join('')}</tr>`).join('')}</tbody>
+    <tfoot id="projFoot">${F.html}</tfoot></table></div>
+    <p class="muted small">Années passées : saisissez le solde de chaque compte au 31 décembre (les valeurs grisées sont calculées à partir de vos pointages). <span class="muted">*</span> = des comptes n’ont pas de valeur cette année-là.</p>`;
+  $('#projChart').innerHTML = projChart(P, F);
+}
+function renderProjAccounts() {
+  const P = yearProjection(), Y = P.Y;
+  return `<div class="card"><h3>📅 État des comptes au 31 décembre</h3>
+      <div class="filters" style="align-items:flex-end">
+        <label>Historique depuis<select data-chg="projSince">${Array.from({ length: 20 }, (_, i) => Y - 20 + i).map(y => `<option value="${y}"${y === P.since ? ' selected' : ''}>${y}</option>`).join('')}</select></label>
+        <label>Projection sur<select data-chg="projYears">${[5, 10, 15, 20, 25, 30].map(n => `<option value="${n}"${n === S.proj.years ? ' selected' : ''}>${n} ans</option>`).join('')}</select></label>
+      </div>
+      <div id="projTable"></div><div id="projChart"></div>
+    </div>
+    <div class="card"><h3>Hypothèses par compte</h3>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Type</th><th class="num">Valeur actuelle</th><th class="num">Rendement (%/an)</th><th class="num">Versement net (€/an)</th></tr></thead><tbody>
+      ${P.rows.map(r => `<tr><td>${esc(r.a.name)}</td><td>${esc(r.a.type)}</td><td class="num">${money(r.cur, false)}</td>
+        <td class="num"><input class="inline-num" type="number" step="0.1" value="${r.h.rate}" data-chg="projHyp" data-acct="${esc(r.a.id)}" data-k="rate"></td>
+        <td class="num"><input class="inline-num" type="number" step="100" value="${r.h.contrib}" data-chg="projHyp" data-acct="${esc(r.a.id)}" data-k="contrib"></td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="muted small" style="margin-bottom:0">Valeur actuelle = placements rattachés au compte + solde estimé d’après les pointages. Versement net = versements moins retraits sur une année (négatif pour un compte qui se vide). Un virement du compte courant vers le PEA doit apparaître en négatif sur l’un et en positif sur l’autre, sinon il est compté deux fois. Les rendements par défaut sont des ordres de grandeur à ajuster, pas des taux garantis ; ceci n’est pas un conseil en investissement.</p>
+    </div>`;
+}
+
 function renderProj() {
   const p = S.sim, avg = avgMonthly(6), avg3 = avgMonthly(3), avg12 = avgMonthly(12);
   $('#tab-proj').innerHTML = `
     <div class="toolbar"><h2>Projections & simulations</h2></div>
+    ${renderProjAccounts()}
+    <h3 style="margin:20px 0 10px">Simulation Monte-Carlo du patrimoine</h3>
     <div class="grid-side">
       <div class="card"><h3>Hypothèses</h3>
         <div class="presets" style="margin-bottom:12px">${PRESETS.map(([n, r, v]) => `<button class="btn" data-act="simPreset" data-ret="${r}" data-vol="${v}" title="${r} %/an, volatilité ${v} %">${n}</button>`).join('')}</div>
@@ -1209,6 +1477,7 @@ function renderProj() {
         <p class="muted small">Projection à 12 mois au rythme des 6 derniers mois : ${signMoney(avg.net * 12, false)} d’épargne supplémentaire.</p>
       </div>
     </div>`;
+  renderProjTable();
   renderProjResults();
 }
 function simulate(p) {
@@ -1388,7 +1657,8 @@ function demoState() {
     const add = (dd, label, amount) => {
       if (dd > last) return;
       const lag = label.startsWith('CB ') ? 1 + Math.floor(rnd() * 2) : 0;
-      s.transactions.push({ id: uid(), date: `${Y}-${pad(M)}-${pad(dd)}`, pdate: `${Y}-${pad(M)}-${pad(Math.min(dd + lag, last))}`, acct: 'courant', label, amount: round2(amount), cat: '', sub: '', note: '' });
+      s.transactions.push({ id: uid(), date: `${Y}-${pad(M)}-${pad(dd)}`, pdate: `${Y}-${pad(M)}-${pad(Math.min(dd + lag, last))}`, acct: 'courant',
+        rawLabel: `${label} ${pad(dd)}/${pad(M)}`, label: simplifyLabel(label), amount: round2(amount), cat: '', sub: '', peer: /LIVRET A/.test(label) ? 'livreta' : '', note: '' });
     };
     add(27, 'VIR SEPA SALAIRE ACME SAS', 2850 + (M === 12 ? 1400 : 0));
     add(2, 'VIR PERMANENT LIVRET A', -300);
@@ -1414,7 +1684,7 @@ function demoState() {
     { id: 'av', name: 'Assurance-vie', bank: 'Assureur Démo', type: 'Assurance-vie', note: '' },
     { id: 'crypto', name: 'Portefeuille crypto', bank: 'Plateforme Démo', type: 'Crypto-actifs', note: '' },
   ];
-  s.transactions.forEach(t => Object.assign(t, classify(t.label, s.rules)));
+  s.transactions.forEach(t => Object.assign(t, classify(txText(t), s.rules)));
   // pointages de fin de mois cohérents avec les opérations…
   const start = new Date(now.getFullYear(), now.getMonth() - 11, 0), iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const pt = (date, balance) => s.pointages.push({ id: uid(), acct: 'courant', date, balance: round2(balance), note: '' });
@@ -1424,7 +1694,7 @@ function demoState() {
     pt(d, 1850 + s.transactions.filter(x => x.pdate <= d).reduce((a, x) => a + x.amount, 0));
   }
   // …sauf une opération « oubliée » il y a 3 mois, que le rapprochement fera apparaître comme un écart
-  const lost = s.transactions.find(x => x.label.startsWith('CB ') && x.date.startsWith(iso(new Date(now.getFullYear(), now.getMonth() - 3, 1)).slice(0, 7)));
+  const lost = s.transactions.find(x => x.rawLabel.startsWith('CB ') && x.date.startsWith(iso(new Date(now.getFullYear(), now.getMonth() - 3, 1)).slice(0, 7)));
   if (lost) s.transactions = s.transactions.filter(x => x !== lost);
   const t = today();
   s.holdings = [
@@ -1468,6 +1738,9 @@ const ACT = {
   acctAdd: () => acctModal(),
   acctEdit: el => { const a = S.accounts.find(x => x.id === el.dataset.id); if (a) acctModal(a); },
   acctShowInv: el => { UI.invAcct = el.dataset.id; go('inv'); },
+  acctPoint: el => ptModal(null, el.dataset.id),
+  anAll: () => { UI.an.off.clear(); renderAnalysis(); },
+  anNone: () => { S.categories.filter(c => c.kind === UI.an.kind).forEach(c => UI.an.off.add(c.id)); renderAnalysis(); },
   acctShowTx: el => { UI.txAcct = el.dataset.id; UI.txMonth = ''; UI.txCat = ''; UI.txSearch = ''; go('tx'); },
   ruleFromTx: el => { const t = findTx(el.dataset.id); if (t) ruleModal(t); },
   ruleAdd: () => ruleModal(null),
@@ -1476,7 +1749,7 @@ const ACT = {
     const all = el.dataset.all === '1';
     if (all && !confirm('Reclasser toutes les opérations selon les règles ? Les catégories choisies à la main seront écrasées (sauf si aucune règle ne correspond).')) return;
     let n = 0;
-    S.transactions.forEach(t => { if (all || t.cat === 'none') { const c = classify(t.label); if (c.cat !== 'none' && (c.cat !== t.cat || c.sub !== t.sub)) { t.cat = c.cat; t.sub = c.sub; n++; } } });
+    S.transactions.forEach(t => { if (all || t.cat === 'none') { const c = classify(txText(t)); if (c.cat !== 'none' && (c.cat !== t.cat || c.sub !== t.sub)) { t.cat = c.cat; t.sub = c.sub; n++; } } });
     save(); toast(`${n} opération(s) reclassée(s).`);
   },
   catDel: el => {
@@ -1505,8 +1778,8 @@ const ACT = {
   exportCsv: () => {
     if (!confirm('Ce fichier CSV ne sera PAS chiffré. Continuer ?')) return;
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = ['Date dépense;Date pointage;Compte;Libellé;Montant;Catégorie;Sous-catégorie;Note'].concat([...S.transactions].sort((a, b) => a.date.localeCompare(b.date))
-      .map(t => [t.date, t.pdate, q(acctName(t.acct)), q(t.label), String(t.amount).replace('.', ','), q(catById(t.cat).name), q(t.sub), q(t.note)].join(';')));
+    const lines = ['Date dépense;Date prélèvement;Compte;Libellé simplifié;Libellé original;Montant;Catégorie;Sous-catégorie;Compte d’origine;Compte de destination;Note'].concat([...S.transactions].sort((a, b) => a.date.localeCompare(b.date))
+      .map(t => [t.date, t.pdate, q(acctName(t.acct)), q(t.label), q(t.rawLabel), String(t.amount).replace('.', ','), q(catById(t.cat).name), q(t.sub), q(txFrom(t) ? acctName(txFrom(t)) : ''), q(txTo(t) ? acctName(txTo(t)) : ''), q(t.note)].join(';')));
     download(`operations-${today()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
   },
   demo: () => {
@@ -1548,6 +1821,26 @@ const CHG = {
   txAcct: el => { UI.txAcct = el.value; renderTxTable(); },
   txRaw: el => { UI.txRaw = el.checked; renderTxTable(); },
   invAcct: el => { UI.invAcct = el.value; renderInv(); },
+  projSince: el => { S.proj.since = +el.value; save(); renderProjTable(); },
+  projYears: el => { S.proj.years = +el.value; save(); renderProjTable(); },
+  // solde historique : seuls les totaux et le graphique changent (le tableau n'est pas redessiné, pour garder la saisie fluide)
+  projHist: el => {
+    const h = S.proj.hist[el.dataset.acct] || (S.proj.hist[el.dataset.acct] = {}), v = el.value.trim();
+    if (v === '') delete h[el.dataset.year]; else h[el.dataset.year] = round2(num(v));
+    save(); const P = yearProjection(), F = projFoot(P); $('#projFoot').innerHTML = F.html; $('#projChart').innerHTML = projChart(P, F);
+  },
+  projHyp: el => {
+    const h = S.proj.hyp[el.dataset.acct] || (S.proj.hyp[el.dataset.acct] = {});
+    if (el.value.trim() === '') delete h[el.dataset.k]; else h[el.dataset.k] = num(el.value);
+    save(); renderProjTable();
+  },
+  anFrom: el => { UI.an.from = el.value; renderAnalysis(); },
+  anTo: el => { UI.an.to = el.value; renderAnalysis(); },
+  anGran: el => { UI.an.gran = el.value; renderAnalysis(); },
+  anKind: el => { UI.an.kind = el.value; renderAnalysis(); },
+  anAcct: el => { UI.an.acct = el.value; renderAnalysis(); },
+  anSubs: el => { UI.an.subs = el.checked; renderAnalysis(); },
+  anCat: el => { if (el.checked) UI.an.off.delete(el.dataset.id); else UI.an.off.add(el.dataset.id); renderAnalysis(); },
   txSetCat: el => {
     const t = findTx(el.dataset.id); if (!t) return;
     t.cat = el.value; t.sub = ''; el.style.borderLeftColor = catById(t.cat).color; save();
@@ -1663,9 +1956,17 @@ const SUBMIT = {
   txSave(f) {
     const e = f.elements, id = e.id.value, label = e.label.value.trim();
     const amount = round2(Math.abs(num(e.amount.value)) * (e.type.value === 'dep' ? -1 : 1));
-    const c = e.cat.value ? { cat: e.cat.value, sub: e.sub.value } : classify(label);
-    const data = { date: e.date.value, pdate: e.pdate.value || e.date.value, acct: e.acct.value, label, amount, ...c, note: e.note.value.trim() };
-    if (id) Object.assign(findTx(id), data); else S.transactions.push({ id: uid(), ...data });
+    const rawLabel = e.rawLabel.value.trim() || label, peer = e.peer.value === e.acct.value ? '' : e.peer.value;
+    let c = e.cat.value ? { cat: e.cat.value, sub: e.sub.value } : classify(`${rawLabel} ${label}`);
+    // un transfert interne non classé va dans la première catégorie de type « Transfert »
+    const tCat = S.categories.find(x => x.kind === 'transfert');
+    if (peer && !e.cat.value && catById(c.cat).kind !== 'transfert' && tCat) c = { cat: tCat.id, sub: '' };
+    const data = { date: e.date.value, pdate: e.pdate.value || e.date.value, acct: e.acct.value, rawLabel, label, amount, ...c, peer, note: e.note.value.trim() };
+    if (id) Object.assign(findTx(id), data);
+    else {
+      S.transactions.push({ id: uid(), ...data });
+      if (peer && e.mirror && e.mirror.checked) S.transactions.push({ id: uid(), ...data, acct: peer, peer: data.acct, amount: -amount });
+    }
     closeModal(); save(); renderTx();
   },
   ptSave(f) {
@@ -1686,7 +1987,7 @@ const SUBMIT = {
     if (!kw) return;
     S.rules.unshift({ id: uid(), kw, cat, sub }); // nouvelle règle prioritaire
     let n = 0;
-    if (f.elements.apply.checked) S.transactions.forEach(t => { if (norm(t.label).includes(norm(kw)) && (t.cat !== cat || t.sub !== sub)) { t.cat = cat; t.sub = sub; n++; } });
+    if (f.elements.apply.checked) S.transactions.forEach(t => { if (norm(txText(t)).includes(norm(kw)) && (t.cat !== cat || t.sub !== sub)) { t.cat = cat; t.sub = sub; n++; } });
     closeModal(); save(); refresh(); toast(`Règle créée${n ? `, ${n} opération(s) reclassée(s)` : ''}.`);
   },
   csvImport(f) {
@@ -1695,14 +1996,14 @@ const SUBMIT = {
     let acct = f.elements.acct.value;
     if (newName) { const a = S.accounts.find(x => norm(x.name) === norm(newName)) || newAccount(newName); if (!S.accounts.includes(a)) S.accounts.push(a); acct = a.id; }
     ok.forEach(t => { t.acct = acct; });
-    const key = t => `${t.acct}|${t.date}|${t.amount.toFixed(2)}|${norm(t.label)}`;
+    const key = t => `${t.acct}|${t.date}|${t.amount.toFixed(2)}|${norm(t.rawLabel)}`;
     const existing = new Map();
     if (f.elements.dedupe.checked) S.transactions.forEach(t => existing.set(key(t), (existing.get(key(t)) || 0) + 1));
     let added = 0, dup = 0;
     for (const t of ok) {
       const k = key(t), c = existing.get(k) || 0;
       if (c > 0) { existing.set(k, c - 1); dup++; continue; }
-      S.transactions.push({ id: uid(), ...t, ...classify(t.label), note: '' }); added++;
+      S.transactions.push({ id: uid(), ...t, ...classify(txText(t)), peer: '', note: '' }); added++;
     }
     CSV = null; closeModal(); save(); UI.month = latestMonth(); renderTx();
     const unc = S.transactions.filter(t => t.cat === 'none').length;
@@ -1737,8 +2038,8 @@ const SUBMIT = {
 };
 
 // En consultation, seules la navigation et les simulations (non enregistrées) sont permises.
-const RO_ACT = new Set(['tab', 'lock', 'discret', 'closeModal', 'lockHome', 'simUseNW', 'simUseAvg', 'simPreset', 'acctShowTx', 'acctShowInv']);
-const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'txAcct', 'txRaw', 'invAcct', 'viewFile']);
+const RO_ACT = new Set(['tab', 'lock', 'discret', 'closeModal', 'lockHome', 'simUseNW', 'simUseAvg', 'simPreset', 'acctShowTx', 'acctShowInv', 'anAll', 'anNone']);
+const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'txAcct', 'txRaw', 'invAcct', 'viewFile', 'projYears', 'projSince', 'anFrom', 'anTo', 'anGran', 'anKind', 'anAcct', 'anSubs', 'anCat']);
 const roBlocked = () => { toast('Lecture seule : les modifications se font sur le PC.'); };
 document.addEventListener('click', e => {
   if (e.target.id === 'modal') { closeModal(); return; }
