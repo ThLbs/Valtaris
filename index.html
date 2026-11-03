@@ -7,7 +7,7 @@
   formulaires, iframes). Seul le script ci-dessous, identifié par son empreinte SHA-256, peut s'exécuter.
   Après toute modification du script, relancer : node outils/sceller.js
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-cO7IR01Ltu0MOLRTuj/wBpB6RdJKddEzT2go60DpqeE='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-flWqN3iSOeY5aoFmG/JggVCaKI7UBG44oQcTjMSsbYs='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Valtaris</title>
@@ -340,6 +340,8 @@ const ACCOUNT_TYPES = [
   ['Placements', ['PEA', 'PEA-PME', 'CTO', 'Assurance-vie', 'PER', 'Épargne salariale (PEE / PERCOL)', 'Crypto-actifs']],
   ['Autres', ['Crédit / prêt', 'Immobilier', 'Autre']],
 ];
+// familles de comptes suivies uniquement par leur solde (pointages) : aucun placement ne peut y être rattaché
+const CASH_FAMILIES = new Set(['Comptes de dépôt', 'Épargne réglementée', 'Épargne bancaire']);
 const typeFamily = type => (ACCOUNT_TYPES.find(([, ts]) => ts.includes(type)) || ['Autres'])[0];
 const newAccount = (name, extra = {}) => ({ id: uid(), name, bank: '', type: 'Compte courant', note: '', ...extra });
 // Anciennes « enveloppes » des placements → type de compte (migration des coffres d'avant l'onglet Comptes)
@@ -403,6 +405,10 @@ function migrate(d) {
     }
     delete h.envelope;
   });
+  const isCash = id => CASH_FAMILIES.has(typeFamily((d.accounts.find(a => a.id === id) || {}).type));
+  d.holdings.filter(h => isCash(h.acct)).forEach(h => d.pointages.push({ id: uid(), acct: h.acct, date: ISO.test(h.updated) ? h.updated : today(),
+    balance: round2((+h.qty || 0) * (+h.price || 0)), note: `Converti depuis le placement « ${h.name} »` }));
+  d.holdings = d.holdings.filter(h => !isCash(h.acct));
   return d;
 }
 
@@ -613,7 +619,7 @@ const acctOf = id => S.accounts.find(a => a.id === id) || { name: '?', bank: '',
 // liste des comptes groupée par famille (placements en tête), pour rattacher un placement
 function acctOptionsGrouped(sel) {
   const fams = ['Placements', ...ACCOUNT_TYPES.map(([f]) => f).filter(f => f !== 'Placements')];
-  return fams.map(f => { const as = S.accounts.filter(a => typeFamily(a.type) === f && (f !== 'Comptes de dépôt' || a.id === sel));
+  return fams.map(f => { const as = S.accounts.filter(a => typeFamily(a.type) === f && (!CASH_FAMILIES.has(f) || a.id === sel));
     return as.length ? `<optgroup label="${esc(f)}">${as.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.bank ? ' — ' + esc(a.bank) : ''}</option>`).join('')}</optgroup>` : ''; }).join('');
 }
 const findPt = id => S.pointages.find(p => p.id === id);
@@ -1229,7 +1235,7 @@ function renderAccounts() {
       ${kpi('Solde estimé des comptes pointés', money(total, false), `${known.length} compte(s) avec au moins un pointage`)}
       ${kpi('Valeur des placements', money(invTotal, false), `${S.holdings.length} placement(s) rattaché(s)`)}
     </div>
-    ${families.map(f => { const dep = f === 'Comptes de dépôt'; return `<div class="card"><h3>${esc(f)}</h3>
+    ${families.map(f => { const dep = CASH_FAMILIES.has(f); return `<div class="card"><h3>${esc(f)}</h3>
       <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Banque / institut</th><th>Type</th><th class="num">Opérations</th><th>Dernier pointage</th><th class="num"${dep ? ' title="Dernier pointage + opérations prélevées depuis"' : ''}>${dep ? 'Solde' : 'Solde estimé'}</th>${dep ? '' : '<th class="num">Placements</th>'}<th></th></tr></thead><tbody>
       ${rows.filter(r => typeFamily(r.a.type) === f).map(({ a, n, last, estimate, gaps, nh, inv }) => `<tr>
         <td style="min-width:150px"><b>${esc(a.name)}</b>${a.note ? `<div class="muted small">${esc(a.note)}</div>` : ''}</td>
@@ -1700,7 +1706,7 @@ function demoState() {
   s.holdings = [
     ['ETF MSCI World', 'CW8', 'pea', 'Actions', 45, 430, 560], ['ETF S&P 500', 'ESE', 'pea', 'Actions', 300, 22, 27.4],
     ['Air Liquide', 'AI', 'cto', 'Actions', 20, 138, 171], ['Fonds euros', '', 'av', 'Fonds euros', 1, 20000, 21850],
-    ['Livret A', '', 'livreta', 'Monétaire / Livrets', 1, 15200, 15200], ['Bitcoin', 'BTC', 'crypto', 'Crypto', 0.08, 31000, 58000],
+    ['Bitcoin', 'BTC', 'crypto', 'Crypto', 0.08, 31000, 58000],
   ].map(([name, ticker, acct, cls, qty, pru, price]) => ({ id: uid(), name: name + ' (démo)', ticker, acct, cls, qty, pru, price, updated: t, realized: 0, ops: [] }));
   const total = s.holdings.reduce((a, h) => a + hValue(h), 0);
   for (let k = 12; k >= 1; k--) {
@@ -1708,6 +1714,7 @@ function demoState() {
     s.snapshots.push({ date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-15`, total: round2(total * (0.84 + 0.16 * (12 - k) / 12) * (0.97 + rnd() * 0.06)) });
   }
   s.snapshots.push({ date: t, total: round2(total) });
+  s.pointages.push({ id: uid(), acct: 'livreta', date: t, balance: 15200, note: '' });
   s.sim.initial = Math.round(total);
   return s;
 }
