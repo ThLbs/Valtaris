@@ -55,13 +55,13 @@ Vous voyez le tableau de bord, les dépenses, les placements et les projections,
 | Onglet | Contenu |
 |---|---|
 | **Tableau de bord** | Patrimoine, revenus/dépenses du mois, taux d’épargne, 12 mois glissants, répartition par catégorie, suivi des budgets, évolution du patrimoine |
-| **Comptes** | Tous vos comptes, regroupés par famille : banque ou institut, type (compte courant, Livret A, LDDS, LEP, PEL, PEA, CTO, assurance-vie, PER…), note, solde à date par pointage, valeur des placements |
+| **Comptes** | Tous vos comptes, regroupés par famille : banque ou institut, devise (comptes courants : EUR, CHF, USD…), type (compte courant, Livret A, LDDS, LEP, PEL, PEA, CTO, assurance-vie, PER…), note, solde à date par pointage, valeur des placements |
 | **Dépenses** | Date de la dépense et date de prélèvement, compte, **libellé original** (brut du relevé) et **libellé simplifié**, catégorie et sous-catégorie, montant, **compte d’origine et de destination** pour les transferts entre vos comptes (avec création automatique de l’opération inverse). Import CSV (format détecté automatiquement, doublons ignorés, ligne brute conservée et affichable), classement par règles, budgets mensuels |
 | **Pointages** | Lignes de solde réel d’un compte à une date, ni débit ni crédit. Entre deux pointages, l’application vérifie que les opérations prélevées expliquent la variation du solde, et signale l’écart sinon |
 | **Analyse** | Tableau croisé catégories × période (semaine, mois, trimestre, année) avec totaux par période et par catégorie, détail par sous-catégorie, filtres de période, de compte et de catégories ; camembert par catégorie ; histogramme empilé ; détection des **dépenses récurrentes** (fréquence, montant moyen, prochaine échéance, coût annuel) |
 | **Investissements** | Lignes de chaque portefeuille regroupées par compte avec sous-totaux, prix de revient unitaire (PRU), plus-values latentes et réalisées, achats/ventes avec recalcul du PRU, répartitions par classe d’actifs, type de compte, compte et banque, historique |
 | **Projections** | **État de chaque compte au 31 décembre, année par année** : historique saisi (ou calculé à partir des pointages) puis projection selon vos hypothèses de rendement et de versements par compte. Simulation Monte-Carlo (1 000 scénarios), simulation de l’impact d’une réduction de dépenses |
-| **Paramètres** | Catégories, règles, verrouillage auto, changement de mot de passe, sauvegardes |
+| **Paramètres** | Devise d’affichage des résultats agrégés et taux de change (saisis à la main, sans connexion), catégories, règles, verrouillage auto, changement de mot de passe, sauvegardes |
 
 **Import bancaire** : dans votre espace bancaire en ligne, exportez vos opérations au format CSV, puis cliquez sur *Importer un CSV*. Quand vous changez la catégorie d’une opération, l’application vous propose de créer une règle pour les prochaines.
 

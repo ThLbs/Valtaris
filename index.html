@@ -7,7 +7,7 @@
   formulaires, iframes). Seul le script ci-dessous, identifié par son empreinte SHA-256, peut s'exécuter.
   Après toute modification du script, relancer : node outils/sceller.js
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-flWqN3iSOeY5aoFmG/JggVCaKI7UBG44oQcTjMSsbYs='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-aVBQbfZqbK1gjKMqKv+rt/741v9C8QkxEvUvqE5LRVQ='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Valtaris</title>
@@ -246,20 +246,33 @@ const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; }
 function today() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function fmtDate(iso) { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
 
-const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
-const EUR0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+// ---------- Devises ----------
+// Les montants sont stockés dans la devise de leur compte ; les résultats agrégés sont convertis dans la devise
+// d'affichage (Paramètres) avec des taux saisis à la main (aucune connexion réseau, donc pas de cours en direct).
+const CURRENCIES = [['EUR', 'Euro'], ['CHF', 'Franc suisse'], ['USD', 'Dollar américain'], ['GBP', 'Livre sterling'], ['CAD', 'Dollar canadien'],
+  ['JPY', 'Yen'], ['SEK', 'Couronne suédoise'], ['NOK', 'Couronne norvégienne'], ['DKK', 'Couronne danoise'], ['AUD', 'Dollar australien']];
+// valeur d'une unité en euros — ordres de grandeur indicatifs, à mettre à jour dans les Paramètres
+const DEFAULT_FX = { CHF: 1.07, USD: 0.86, GBP: 1.15, CAD: 0.62, JPY: 0.0057, SEK: 0.09, NOK: 0.085, DKK: 0.134, AUD: 0.56 };
+const FMT = {};
+const fmtCur = (v, cur = 'EUR', dec = true) => (FMT[cur + dec] || (FMT[cur + dec] = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cur, ...(dec ? {} : { maximumFractionDigits: 0 }) }))).format(v);
+const BASE = () => (typeof S !== 'undefined' && S && S.settings && S.settings.baseCur) || 'EUR';
+const curSymbol = cur => (new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cur }).formatToParts(0).find(p => p.type === 'currency') || { value: cur }).value;
+const fxRate = cur => cur === 'EUR' ? 1 : ((S && S.settings.fx && S.settings.fx[cur]) || DEFAULT_FX[cur] || 1);
+const toBase = (v, cur = 'EUR') => cur === BASE() ? v : v * fxRate(cur) / fxRate(BASE());
 const NUM = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 6 });
 const MF = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' });
 const MS = new Intl.DateTimeFormat('fr-FR', { month: 'short' });
-const fmtEur = (v, dec = true) => (dec ? EUR : EUR0).format(v);
-const money = (v, dec = true) => `<span class="amt">${esc(fmtEur(v, dec))}</span>`;
-const signMoney = (v, dec = true) => `<span class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${esc(fmtEur(v, dec))}</span>`;
+// fmtEur / money / signMoney : devise d'affichage par défaut, ou celle passée en paramètre (montants propres à un compte)
+const fmtEur = (v, dec = true, cur = BASE()) => fmtCur(v, cur, dec);
+const money = (v, dec = true, cur = BASE()) => `<span class="amt">${esc(fmtCur(v, cur, dec))}</span>`;
+const signMoney = (v, dec = true, cur = BASE()) => `<span class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${esc(fmtCur(v, cur, dec))}</span>`;
 const pct = v => (v * 100).toFixed(1).replace('.', ',') + ' %';
 function compact(v) {
   const a = Math.abs(v);
-  if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',') + ' M€';
-  if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace('.', ',') + ' k€';
-  return Math.round(v) + ' €';
+  const s = curSymbol(BASE()), sep = s.length > 1 ? ' ' : '';
+  if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',') + ' M' + sep + s;
+  if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace('.', ',') + ' k' + sep + s;
+  return Math.round(v) + ' ' + s;
 }
 function monthLabel(k) { const [y, m] = k.split('-').map(Number); return MF.format(new Date(y, m - 1, 1)); }
 function shortMonth(k) { const [y, m] = k.split('-').map(Number); return MS.format(new Date(y, m - 1, 1)).replace('.', ''); }
@@ -343,7 +356,7 @@ const ACCOUNT_TYPES = [
 // familles de comptes suivies uniquement par leur solde (pointages) : aucun placement ne peut y être rattaché
 const CASH_FAMILIES = new Set(['Comptes de dépôt', 'Épargne réglementée', 'Épargne bancaire']);
 const typeFamily = type => (ACCOUNT_TYPES.find(([, ts]) => ts.includes(type)) || ['Autres'])[0];
-const newAccount = (name, extra = {}) => ({ id: uid(), name, bank: '', type: 'Compte courant', note: '', ...extra });
+const newAccount = (name, extra = {}) => ({ id: uid(), name, bank: '', type: 'Compte courant', currency: 'EUR', note: '', ...extra });
 // Anciennes « enveloppes » des placements → type de compte (migration des coffres d'avant l'onglet Comptes)
 const ENVELOPE_TYPE = { PEA: 'PEA', CTO: 'CTO', 'Assurance-vie': 'Assurance-vie', PER: 'PER', Livret: 'Livret A', 'Compte courant': 'Compte courant', Crypto: 'Crypto-actifs', Immobilier: 'Immobilier', Autre: 'Autre' };
 const CLASSES = ['Actions', 'Obligations', 'Fonds euros', 'Monétaire / Livrets', 'Immobilier', 'Crypto', 'Liquidités', 'Autre'];
@@ -354,15 +367,15 @@ function defaultState() {
     version: 1, created: today(),
     categories: DEFAULT_CATS.map(([id, name, kind, color]) => ({ id, name, kind, color, subs: [...(DEFAULT_SUBS[id] || [])] })),
     rules: DEFAULT_RULES.map(([kw, cat, sub = '']) => ({ id: uid(), kw, cat, sub })),
-    // compte : { id, name, bank (banque ou institut), type (voir ACCOUNT_TYPES), note }
-    accounts: [{ id: 'courant', name: 'Compte courant', bank: '', type: 'Compte courant', note: '' }],
+    // compte : { id, name, bank (banque ou institut), type (voir ACCOUNT_TYPES), currency (comptes de dépôt uniquement), note }
+    accounts: [{ id: 'courant', name: 'Compte courant', bank: '', type: 'Compte courant', currency: 'EUR', note: '' }],
     // transaction : { id, date (dépense), pdate (prélèvement), acct, rawLabel (libellé original), label (simplifié), amount,
     //   cat, sub, peer (autre compte d'un transfert interne, '' sinon), note, raw? (ligne CSV d'origine) }
     // pointage : { id, acct, date, balance, note } — solde réel constaté, ni débit ni crédit
     budgets: {}, transactions: [], pointages: [], holdings: [], snapshots: [],
     // projection annuelle : hist[compte][année] = solde fin d'année saisi ; hyp[compte] = { rate (%/an), contrib (€/an) }
     proj: { years: 10, since: null, hist: {}, hyp: {} },
-    settings: { lockMinutes: 10, lastBackup: null, discret: false },
+    settings: { lockMinutes: 10, lastBackup: null, discret: false, baseCur: 'EUR', fx: { ...DEFAULT_FX }, fxDate: null },
     sim: { initial: 10000, monthly: 500, growth: 0, ret: 5, vol: 10, fees: 0.5, infl: 2, years: 20, goal: 300000, wr: 4, real: true, redCat: 'resto', redPct: 20 },
   };
 }
@@ -372,6 +385,8 @@ function migrate(d) {
   for (const k of Object.keys(base)) if (d[k] === undefined) d[k] = base[k];
   for (const k of ['categories', 'rules', 'transactions', 'pointages', 'accounts', 'holdings', 'snapshots']) if (!Array.isArray(d[k])) d[k] = base[k];
   d.settings = { ...base.settings, ...d.settings };
+  d.settings.fx = { ...DEFAULT_FX, ...(d.settings.fx || {}) };
+  if (!CURRENCIES.some(([c]) => c === d.settings.baseCur)) d.settings.baseCur = 'EUR';
   d.sim = { ...base.sim, ...d.sim };
   if (!d.categories.some(c => c.id === 'none')) d.categories.push({ id: 'none', name: 'Non classé', kind: 'depense', color: '#c9ccd1' });
   d.categories.forEach(c => {
@@ -381,7 +396,8 @@ function migrate(d) {
   d.rules.forEach(r => { if (typeof r.sub !== 'string') r.sub = ''; });
   d.accounts = d.accounts.filter(a => a && a.id && a.name);
   if (!d.accounts.length) d.accounts = base.accounts;
-  d.accounts.forEach(a => { for (const k of ['bank', 'note']) if (typeof a[k] !== 'string') a[k] = ''; if (typeof a.type !== 'string' || !a.type) a.type = 'Compte courant'; });
+  d.accounts.forEach(a => { for (const k of ['bank', 'note']) if (typeof a[k] !== 'string') a[k] = ''; if (typeof a.type !== 'string' || !a.type) a.type = 'Compte courant';
+    if (!CURRENCIES.some(([c]) => c === a.currency) || typeFamily(a.type) !== 'Comptes de dépôt') a.currency = 'EUR'; });
   const hasAcct = id => d.accounts.some(a => a.id === id), acct0 = d.accounts[0].id;
   d.transactions = d.transactions.filter(t => t && ISO.test(t.date) && Number.isFinite(t.amount));
   d.transactions.forEach(t => {
@@ -613,9 +629,12 @@ const catLabel = (cat, sub) => esc(catById(cat).name) + (sub ? ' › ' + esc(sub
 
 // ---------- Comptes bancaires & pointages ----------
 const acctName = id => (S.accounts.find(a => a.id === id) || { name: '?' }).name;
-const acctOptions = sel => S.accounts.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}</option>`).join('');
+const acctOptions = sel => S.accounts.map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.currency && a.currency !== 'EUR' ? ' (' + a.currency + ')' : ''}</option>`).join('');
 const defaultAcct = () => UI.txAcct || S.accounts[0].id;
-const acctOf = id => S.accounts.find(a => a.id === id) || { name: '?', bank: '', type: 'Autre' };
+const acctOf = id => S.accounts.find(a => a.id === id) || { name: '?', bank: '', type: 'Autre', currency: 'EUR' };
+const acctCur = id => acctOf(id).currency || 'EUR';
+const curOptions = sel => CURRENCIES.map(([c, n]) => `<option value="${c}"${c === sel ? ' selected' : ''}>${c} — ${esc(n)}</option>`).join('');
+const amtB = t => toBase(t.amount, acctCur(t.acct)); // montant d'une opération dans la devise d'affichage
 // liste des comptes groupée par famille (placements en tête), pour rattacher un placement
 function acctOptionsGrouped(sel) {
   const fams = ['Placements', ...ACCOUNT_TYPES.map(([f]) => f).filter(f => f !== 'Placements')];
@@ -655,8 +674,9 @@ function monthStats(m) {
   let inc = 0, exp = 0; const byCat = {};
   for (const t of S.transactions) {
     if (!t.date.startsWith(m) || isTransfer(t)) continue;
-    if (t.amount >= 0) inc += t.amount; else exp -= t.amount;
-    byCat[t.cat] = (byCat[t.cat] || 0) + t.amount;
+    const v = amtB(t);
+    if (v >= 0) inc += v; else exp -= v;
+    byCat[t.cat] = (byCat[t.cat] || 0) + v;
   }
   return { inc, exp, net: inc - exp, byCat };
 }
@@ -751,7 +771,7 @@ function monthSelect(sel) { return `<select data-chg="setMonth">${allMonths().ma
 // Tableau de bord
 // =====================================================================
 function renderDash() {
-  const m = UI.month, st = monthStats(m), nw = netWorth(), cost = totalCost(), avg = avgMonthly(6);
+  const m = UI.month, st = monthStats(m), nw = toBase(netWorth()), cost = toBase(totalCost()), avg = avgMonthly(6);
   const months = lastMonths(12, m), ms = months.map(monthStats), spend = spendingByCat(st);
   const lb = S.settings.lastBackup;
   const needBackup = (S.transactions.length || S.holdings.length) && (!lb || (Date.now() - new Date(lb)) > 30 * 864e5);
@@ -776,7 +796,7 @@ function renderDash() {
     </div>
     <div class="grid2">
       <div class="card"><h3>Budgets du mois</h3>${budgetBars(st)}</div>
-      <div class="card"><h3>Évolution du patrimoine</h3>${snaps.length > 1 ? lineChart({ labels: snaps.map(s => fmtDate(s.date).slice(0, 5) + '/' + s.date.slice(2, 4)), series: [{ name: 'Patrimoine', color: 'var(--accent)', values: snaps.map(s => s.total) }] }) : empty('L’historique se construit à chaque mise à jour de vos placements.')}</div>
+      <div class="card"><h3>Évolution du patrimoine</h3>${snaps.length > 1 ? lineChart({ labels: snaps.map(s => fmtDate(s.date).slice(0, 5) + '/' + s.date.slice(2, 4)), series: [{ name: 'Patrimoine', color: 'var(--accent)', values: snaps.map(s => toBase(s.total)) }] }) : empty('L’historique se construit à chaque mise à jour de vos placements.')}</div>
     </div>`;
 }
 function budgetBars(st) {
@@ -828,15 +848,16 @@ function filteredPts() {
   return S.pointages.filter(p => (!UI.txMonth || p.date.startsWith(UI.txMonth)) && (!UI.txAcct || p.acct === UI.txAcct));
 }
 function recStatus(r) {
+  const c = r && acctCur(r.p.acct), sm = v => signMoney(v, true, c);
   if (!r) return '<span class="muted">Premier pointage de ce compte : point de départ du rapprochement.</span>';
   const since = `depuis le ${fmtDate(r.prev.date)}`;
   return r.gap === 0
-    ? `<span class="pos">✓ Rapproché</span> <span class="muted">— ${r.n} opération(s) ${since} = ${signMoney(r.sum)}</span>`
-    : `<span class="neg">⚠ Écart de ${signMoney(r.gap)}</span> <span class="muted">— variation du solde ${since} ${signMoney(r.expected)}, opérations relevées ${signMoney(r.sum)} (${r.n})</span>`;
+    ? `<span class="pos">✓ Rapproché</span> <span class="muted">— ${r.n} opération(s) ${since} = ${sm(r.sum)}</span>`
+    : `<span class="neg">⚠ Écart de ${sm(r.gap)}</span> <span class="muted">— variation du solde ${since} ${sm(r.expected)}, opérations relevées ${sm(r.sum)} (${r.n})</span>`;
 }
 function renderTxTable() {
   const list = filteredTx(), pts = filteredPts(); let inc = 0, exp = 0;
-  for (const t of list) { if (isTransfer(t)) continue; if (t.amount >= 0) inc += t.amount; else exp -= t.amount; }
+  for (const t of list) { if (isTransfer(t)) continue; const v = amtB(t); if (v >= 0) inc += v; else exp -= v; }
   const recByPt = new Map();
   S.accounts.forEach(a => reconcile(a.id).periods.forEach(r => recByPt.set(r.p.id, r)));
   // Tri par date de prélèvement décroissante ; à date égale, le pointage (qui inclut les opérations du jour) passe au-dessus.
@@ -852,11 +873,11 @@ function renderTxTable() {
       <td><select class="cat-sel" data-chg="txSetCat" data-id="${t.id}" style="border-left:4px solid ${catById(t.cat).color}">${catOptions(t.cat)}</select></td>
       <td><select class="cat-sel" data-chg="txSetSub" data-id="${t.id}">${subOptions(t.cat, t.sub)}</select></td>
       ${[txFrom(t), txTo(t)].map(id => `<td class="nowrap${t.peer ? '' : ' muted'}">${id ? esc(acctName(id)) : '<span title="Hors de vos comptes">externe</span>'}</td>`).join('')}
-      <td class="num ${t.peer ? '' : t.amount < 0 ? 'neg' : 'pos'}">${t.peer ? '⇄ ' : ''}${money(t.amount)}</td>${rawCells(t)}
+      <td class="num ${t.peer ? '' : t.amount < 0 ? 'neg' : 'pos'}">${t.peer ? '⇄ ' : ''}${money(t.amount, true, acctCur(t.acct))}</td>${rawCells(t)}
       <td class="actions"><button class="icon" title="Modifier" data-act="txEdit" data-id="${t.id}">✎</button><button class="icon" title="Supprimer" data-act="txDel" data-id="${t.id}">✕</button></td></tr>`;
   const ptRow = p => `<tr class="pt"><td></td><td class="nowrap"><b>${fmtDate(p.date)}</b></td><td class="nowrap">${esc(acctName(p.acct))}</td>
       <td colspan="6"><b>🎯 Pointage — solde réel du compte</b>${p.note ? ` <span class="muted small">${esc(p.note)}</span>` : ''}<div class="small">${recStatus(recByPt.get(p.id))}</div></td>
-      <td class="num"><b>${money(p.balance)}</b></td>${rawCols.length ? `<td class="raw" colspan="${rawCols.length}"></td>` : ''}
+      <td class="num"><b>${money(p.balance, true, acctCur(p.acct))}</b></td>${rawCols.length ? `<td class="raw" colspan="${rawCols.length}"></td>` : ''}
       <td class="actions"><button class="icon" title="Modifier" data-act="ptEdit" data-id="${p.id}">✎</button><button class="icon" title="Supprimer" data-act="ptDel" data-id="${p.id}">✕</button></td></tr>`;
   $('#txTable').innerHTML = `<div class="summary">${list.length} opération(s)${pts.length ? ` · ${pts.length} pointage(s)` : ''} · Revenus <b class="pos">${money(inc)}</b> · Dépenses <b class="neg">${money(exp)}</b> · Solde <b>${signMoney(inc - exp)}</b> <span class="small">(transferts exclus)</span></div>
   ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Date dépense</th><th title="Date de passage sur le compte (date comptable / de valeur), utilisée pour le rapprochement">Date prélèvement</th><th>Compte</th><th>Libellé simplifié</th><th>Libellé original</th><th>Catégorie</th><th>Sous-catégorie</th><th title="Compte débité : le compte de l’opération en cas de débit">Origine</th><th title="Compte crédité : le compte de l’opération en cas de crédit">Destination</th><th class="num">Montant</th>
@@ -871,13 +892,13 @@ function renderRecon() {
   const el = $('#recon'); if (!el) return;
   const accts = S.accounts.filter(a => !UI.txAcct || a.id === UI.txAcct).map(a => ({ a, ...reconcile(a.id) })).filter(x => x.pts.length);
   el.innerHTML = `<p class="muted small" style="margin-top:-6px">Saisissez régulièrement le solde réel de chaque compte (bouton « Pointage de solde »). Entre deux pointages, la somme des opérations relevées (selon leur date de prélèvement) doit égaler la variation du solde ; sinon, une opération manque, est en double ou a un mauvais montant.</p>
-    ${accts.length ? accts.map(({ a, periods, last, estimate }) => `<h4>${esc(a.name)}</h4>
-      <p class="small" style="margin:0 0 6px">Dernier pointage le ${fmtDate(last.date)} : <b>${money(last.balance)}</b> · Solde estimé avec les opérations relevées depuis : <b>${money(estimate)}</b></p>
+    ${accts.length ? accts.map(({ a, periods, last, estimate }) => { const c = a.currency || 'EUR', mo = v => money(v, true, c), sm = v => signMoney(v, true, c); return `<h4>${esc(a.name)}${c !== 'EUR' ? ` <span class="muted small">${c}</span>` : ''}</h4>
+      <p class="small" style="margin:0 0 6px">Dernier pointage le ${fmtDate(last.date)} : <b>${mo(last.balance)}</b> · Solde estimé avec les opérations relevées depuis : <b>${mo(estimate)}</b></p>
       ${periods.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Du</th><th>Au</th><th class="num">Solde début</th><th class="num">Solde fin</th><th class="num">Variation</th><th class="num">Opérations relevées</th><th class="num">Écart</th></tr></thead><tbody>
-        ${periods.slice().reverse().slice(0, 36).map(r => `<tr><td class="nowrap">${fmtDate(r.prev.date)}</td><td class="nowrap">${fmtDate(r.p.date)}</td><td class="num">${money(r.prev.balance)}</td><td class="num">${money(r.p.balance)}</td>
-          <td class="num">${signMoney(r.expected)}</td><td class="num">${signMoney(r.sum)} <span class="muted small">(${r.n})</span></td>
-          <td class="num">${r.gap === 0 ? '<span class="pos">✓</span>' : `<b class="neg">⚠ ${esc(fmtEur(r.gap))}</b>`}</td></tr>`).join('')}
-      </tbody></table></div>` : '<p class="muted small">Un seul pointage pour l’instant : saisissez-en un second plus tard pour vérifier la période.</p>'}`).join('')
+        ${periods.slice().reverse().slice(0, 36).map(r => `<tr><td class="nowrap">${fmtDate(r.prev.date)}</td><td class="nowrap">${fmtDate(r.p.date)}</td><td class="num">${mo(r.prev.balance)}</td><td class="num">${mo(r.p.balance)}</td>
+          <td class="num">${sm(r.expected)}</td><td class="num">${sm(r.sum)} <span class="muted small">(${r.n})</span></td>
+          <td class="num">${r.gap === 0 ? '<span class="pos">✓</span>' : `<b class="neg">⚠ ${esc(fmtCur(r.gap, c))}</b>`}</td></tr>`).join('')}
+      </tbody></table></div>` : '<p class="muted small">Un seul pointage pour l’instant : saisissez-en un second plus tard pour vérifier la période.</p>'}`; }).join('')
     : empty('Aucun pointage de solde pour l’instant.')}`;
 }
 function txModal(t) {
@@ -887,7 +908,7 @@ function txModal(t) {
       <input type="hidden" name="id" value="${esc(e.id)}">
       <div class="row">
         <label>Type<select name="type"><option value="dep"${e.amount < 0 || Object.is(e.amount, -0) ? ' selected' : ''}>Dépense</option><option value="rev"${e.amount > 0 ? ' selected' : ''}>Revenu</option></select></label>
-        <label>Montant (€)<input type="number" name="amount" step="0.01" min="0" value="${e.amount ? Math.abs(e.amount) : ''}" required></label>
+        <label>Montant (devise du compte)<input type="number" name="amount" step="0.01" min="0" value="${e.amount ? Math.abs(e.amount) : ''}" required></label>
         <label>Compte<select name="acct">${acctOptions(e.acct)}</select></label>
       </div>
       <div class="row">
@@ -921,7 +942,7 @@ function ptModal(p, acct) {
       <div class="row">
         <label>Compte<select name="acct">${acctOptions(e.acct)}</select></label>
         <label>Date<input type="date" name="date" value="${esc(e.date)}" required></label>
-        <label>Solde (€)<input type="number" name="balance" step="0.01" value="${esc(e.balance)}" required></label>
+        <label>Solde (devise du compte)<input type="number" name="balance" step="0.01" value="${esc(e.balance)}" required></label>
       </div>
       <label>Note<input name="note" value="${esc(e.note || '')}" maxlength="200"></label>
       <div class="row"><span class="spacer"></span><button class="btn primary" type="submit">Enregistrer</button></div>
@@ -1109,7 +1130,7 @@ function anRows() {
   const a = UI.an, { from, to } = anRange();
   return S.transactions.filter(t => t.date >= from && t.date <= to && !isTransfer(t) && (!a.acct || t.acct === a.acct)
     && catById(t.cat).kind === a.kind && !a.off.has(catById(t.cat).id))
-    .map(t => ({ t, v: a.kind === 'depense' ? -t.amount : t.amount }));
+    .map(t => ({ t, v: a.kind === 'depense' ? -amtB(t) : amtB(t) }));
 }
 function stackedBars(labels, series) {
   const W = 640, H = 260, L = 52, R = 8, T = 12, B = 26, iw = W - L - R, ih = H - T - B;
@@ -1148,9 +1169,9 @@ function recurringExpenses() {
     if (gaps.filter(d => Math.abs(d - freq.days) <= freq.tol).length / gaps.length < 0.6) continue;
     const last = list[list.length - 1];
     if ((now - Date.parse(last.date)) / 864e5 > freq.days * 2 + freq.tol) continue; // n'apparaît plus
-    const amts = list.slice(-6).map(t => -t.amount), avg = amts.reduce((s, v) => s + v, 0) / amts.length;
+    const amts = list.slice(-6).map(t => -amtB(t)), avg = amts.reduce((s, v) => s + v, 0) / amts.length;
     const sd = Math.sqrt(amts.reduce((s, v) => s + (v - avg) ** 2, 0) / amts.length);
-    out.push({ t: last, freq, n: list.length, avg, lastAmt: -last.amount, next: addDays(last.date, Math.round(freq.days)), yearly: avg * 365 / freq.days, variable: sd / avg > 0.1 });
+    out.push({ t: last, freq, n: list.length, avg, lastAmt: -amtB(last), next: addDays(last.date, Math.round(freq.days)), yearly: avg * 365 / freq.days, variable: sd / avg > 0.1 });
   }
   return out.sort((a, b) => b.yearly - a.yearly);
 }
@@ -1220,11 +1241,11 @@ function renderAccounts() {
     const r = reconcile(a.id);
     const hs = S.holdings.filter(h => h.acct === a.id);
     return { a, n: S.transactions.filter(t => t.acct === a.id).length, last: r.last, estimate: r.estimate, gaps: r.periods.filter(p => p.gap !== 0).length,
-      nh: hs.length, inv: hs.reduce((s, h) => s + hValue(h), 0) };
+      nh: hs.length, inv: hs.reduce((s, h) => s + hValue(h), 0), cur: a.currency || 'EUR' };
   });
-  const invTotal = rows.reduce((s, r) => s + r.inv, 0);
+  const invTotal = toBase(rows.reduce((s, r) => s + r.inv, 0));
   const banks = new Set(S.accounts.map(a => a.bank.trim()).filter(Boolean));
-  const known = rows.filter(r => r.last), total = known.reduce((s, r) => s + r.estimate, 0);
+  const known = rows.filter(r => r.last), total = known.reduce((s, r) => s + toBase(r.estimate, r.cur), 0);
   const families = ACCOUNT_TYPES.map(([f]) => f).filter(f => rows.some(r => typeFamily(r.a.type) === f));
   $('#tab-acc').innerHTML = `
     <div class="toolbar"><h2>Mes comptes</h2><span class="spacer"></span>
@@ -1237,14 +1258,14 @@ function renderAccounts() {
     </div>
     ${families.map(f => { const dep = CASH_FAMILIES.has(f); return `<div class="card"><h3>${esc(f)}</h3>
       <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Banque / institut</th><th>Type</th><th class="num">Opérations</th><th>Dernier pointage</th><th class="num"${dep ? ' title="Dernier pointage + opérations prélevées depuis"' : ''}>${dep ? 'Solde' : 'Solde estimé'}</th>${dep ? '' : '<th class="num">Placements</th>'}<th></th></tr></thead><tbody>
-      ${rows.filter(r => typeFamily(r.a.type) === f).map(({ a, n, last, estimate, gaps, nh, inv }) => `<tr>
+      ${rows.filter(r => typeFamily(r.a.type) === f).map(({ a, n, last, estimate, gaps, nh, inv, cur }) => `<tr>
         <td style="min-width:150px"><b>${esc(a.name)}</b>${a.note ? `<div class="muted small">${esc(a.note)}</div>` : ''}</td>
         <td>${a.bank ? esc(a.bank) : '<span class="muted">—</span>'}</td>
-        <td class="nowrap">${esc(a.type)}</td>
+        <td class="nowrap">${esc(a.type)}${cur !== 'EUR' ? ` <span class="muted small">${cur}</span>` : ''}</td>
         <td class="num">${n}</td>
-        <td class="nowrap">${last ? `${fmtDate(last.date)} · ${money(last.balance)}` : '<span class="muted">aucun</span>'}${gaps ? ` <span class="neg small" title="Périodes dont le rapprochement présente un écart">⚠ ${gaps} écart(s)</span>` : ''}</td>
-        <td class="num">${last ? money(estimate) : '<span class="muted">—</span>'}</td>
-        ${dep ? '' : `<td class="num">${nh ? `${money(inv)} <span class="muted small">(${nh})</span>` : '<span class="muted">—</span>'}</td>`}
+        <td class="nowrap">${last ? `${fmtDate(last.date)} · ${money(last.balance, true, cur)}` : '<span class="muted">aucun</span>'}${gaps ? ` <span class="neg small" title="Périodes dont le rapprochement présente un écart">⚠ ${gaps} écart(s)</span>` : ''}</td>
+        <td class="num">${last ? money(estimate, true, cur) : '<span class="muted">—</span>'}</td>
+        ${dep ? '' : `<td class="num">${nh ? `${money(inv, true, 'EUR')} <span class="muted small">(${nh})</span>` : '<span class="muted">—</span>'}</td>`}
         <td class="actions">${nh ? `<button class="icon" title="Voir les placements" data-act="acctShowInv" data-id="${esc(a.id)}">📈</button>` : ''}<button class="icon" title="Voir les opérations" data-act="acctShowTx" data-id="${esc(a.id)}">☰</button><button class="icon" title="Saisir le solde à date (pointage)" data-act="acctPoint" data-id="${esc(a.id)}">🎯</button><button class="icon" title="Modifier" data-act="acctEdit" data-id="${esc(a.id)}">✎</button><button class="icon" title="Supprimer" data-act="acctDel" data-id="${esc(a.id)}">✕</button></td></tr>`).join('')}
       </tbody></table></div></div>`; }).join('')}
     <p class="muted small">Le solde estimé part du dernier pointage de solde du compte et ajoute les opérations relevées depuis. Saisissez les pointages depuis l’onglet Dépenses.</p>`;
@@ -1258,8 +1279,12 @@ function acctModal(a) {
       <label>Nom du compte<input name="name" value="${esc(e.name)}" required maxlength="60" placeholder="ex. Compte joint, Livret A de Léa…"></label>
       <div class="row">
         <label>Banque ou institut<input name="bank" value="${esc(e.bank)}" maxlength="60" list="bankList" placeholder="ex. Boursorama, Crédit Agricole, Linxea…"></label>
-        <label>Type de compte<select name="type">${ACCOUNT_TYPES.map(([f, ts]) => `<optgroup label="${esc(f)}">${ts.map(t => `<option${t === e.type ? ' selected' : ''}>${esc(t)}</option>`).join('')}</optgroup>`).join('')}
+        <label>Type de compte<select name="type" data-chg="acctType">${ACCOUNT_TYPES.map(([f, ts]) => `<optgroup label="${esc(f)}">${ts.map(t => `<option${t === e.type ? ' selected' : ''}>${esc(t)}</option>`).join('')}</optgroup>`).join('')}
           ${ACCOUNT_TYPES.some(([, ts]) => ts.includes(e.type)) ? '' : `<option selected>${esc(e.type)}</option>`}</select></label>
+      </div>
+      <div class="row" data-cur${typeFamily(e.type) === 'Comptes de dépôt' ? '' : ' hidden'}>
+        <label>Devise du compte<select name="currency">${curOptions(e.currency || 'EUR')}</select></label>
+        <p class="muted small" style="flex:2 1 220px;margin:0">Opérations et pointages de ce compte sont saisis dans cette devise ; les totaux sont convertis dans la devise d’affichage (Paramètres).</p>
       </div>
       <datalist id="bankList">${banks.map(b => `<option value="${esc(b)}">`).join('')}</datalist>
       <label>Note<input name="note" value="${esc(e.note)}" maxlength="200" placeholder="facultatif (titulaire, plafond, taux…)"></label>
@@ -1273,12 +1298,12 @@ function acctModal(a) {
 function renderInv() {
   if (UI.invAcct && !S.accounts.some(a => a.id === UI.invAcct)) UI.invAcct = '';
   const all = UI.invAcct ? S.holdings.filter(h => h.acct === UI.invAcct) : S.holdings;
-  const nw = all.reduce((s, h) => s + hValue(h), 0), cost = all.reduce((s, h) => s + hCost(h), 0), gain = nw - cost;
-  const realized = all.reduce((s, h) => s + (h.realized || 0), 0);
+  const nw = all.reduce((s, h) => s + hValue(h), 0), cost = all.reduce((s, h) => s + hCost(h), 0), gain = nw - cost; // en euros
+  const realized = all.reduce((s, h) => s + (h.realized || 0), 0), B = v => toBase(v);
   const withInv = S.accounts.filter(a => S.holdings.some(h => h.acct === a.id));
   const group = keyOf => {
     const m = {}; all.forEach(h => { const k = keyOf(h); m[k] = (m[k] || 0) + hValue(h); });
-    return Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: PALETTE[i % PALETTE.length] }));
+    return Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value: B(value), color: PALETTE[i % PALETTE.length] }));
   };
   const hs = [...all].sort((a, b) => hValue(b) - hValue(a));
   // un portefeuille par compte (sous-total en tête), sauf quand on regarde un seul compte
@@ -1290,23 +1315,23 @@ function renderInv() {
       ${withInv.length > 1 || UI.invAcct ? `<select data-chg="invAcct"><option value="">Tous les comptes</option>${withInv.map(a => `<option value="${esc(a.id)}"${a.id === UI.invAcct ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}
       <button class="btn primary" data-act="invAdd">+ Ajouter un placement</button></div>
     <div class="kpis">
-      ${kpi('Valeur totale', money(nw, false))}
-      ${kpi('Montant investi', money(cost, false), 'quantité × prix de revient')}
-      ${kpi('Plus-values latentes', signMoney(gain, false), cost > 0 ? pct(gain / cost) : '')}
-      ${kpi('Plus-values réalisées', signMoney(realized, false), 'cumul des ventes')}
+      ${kpi('Valeur totale', money(B(nw), false))}
+      ${kpi('Montant investi', money(B(cost), false), 'quantité × prix de revient')}
+      ${kpi('Plus-values latentes', signMoney(B(gain), false), cost > 0 ? pct(gain / cost) : '')}
+      ${kpi('Plus-values réalisées', signMoney(B(realized), false), 'cumul des ventes')}
     </div>
     <div class="card">${hs.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Placement</th><th>Compte</th><th>Classe</th><th class="num">Quantité</th><th class="num">PRU</th><th class="num">Cours actuel</th><th class="num">Valeur</th><th class="num">+/- latente</th><th class="num">Poids</th><th></th></tr></thead><tbody>
       ${portfolios.map(([pa, list]) => (pa ? (() => { const pv = list.reduce((s, h) => s + hValue(h), 0), pg = pv - list.reduce((s, h) => s + hCost(h), 0);
         return `<tr class="grp"><td colspan="6"><b>📁 ${esc(pa.name)}</b> <span class="muted small">${esc([pa.type, pa.bank].filter(Boolean).join(' · '))} · ${list.length} ligne(s)</span></td>
-          <td class="num"><b>${money(pv)}</b></td><td class="num">${signMoney(pg)}</td><td class="num">${nw > 0 ? pct(pv / nw) : '—'}</td>
+          <td class="num"><b>${money(B(pv))}</b></td><td class="num">${signMoney(B(pg))}</td><td class="num">${nw > 0 ? pct(pv / nw) : '—'}</td>
           <td class="actions"><button class="icon" title="Voir ce portefeuille seul" data-act="acctShowInv" data-id="${esc(pa.id)}">🔍</button></td></tr>`; })() : '')
       + list.map(h => { const v = hValue(h), g = v - hCost(h); return `<tr>
         <td><b>${esc(h.name)}</b>${h.ticker ? ` <span class="muted small">${esc(h.ticker)}</span>` : ''}<div class="muted small">MAJ ${h.updated ? fmtDate(h.updated) : '—'}</div></td>
         <td>${esc(acctOf(h.acct).name)}<div class="muted small">${esc([acctOf(h.acct).type, acctOf(h.acct).bank].filter(Boolean).join(' · '))}</div></td><td>${esc(h.cls)}</td>
-        <td class="num">${esc(NUM.format(h.qty))}</td><td class="num">${money(h.pru)}</td>
+        <td class="num">${esc(NUM.format(h.qty))}</td><td class="num">${money(h.pru, true, 'EUR')}</td>
         <td class="num"><input class="inline-num" type="number" step="any" min="0" value="${h.price}" data-chg="invPrice" data-id="${h.id}" title="Mettre à jour le cours"></td>
-        <td class="num"><b>${money(v)}</b></td>
-        <td class="num">${signMoney(g)}<div class="small ${g >= 0 ? 'pos' : 'neg'}">${hCost(h) > 0 ? pct(g / hCost(h)) : ''}</div></td>
+        <td class="num"><b>${money(v, true, 'EUR')}</b></td>
+        <td class="num">${signMoney(g, true, 'EUR')}<div class="small ${g >= 0 ? 'pos' : 'neg'}">${hCost(h) > 0 ? pct(g / hCost(h)) : ''}</div></td>
         <td class="num">${nw > 0 ? pct(v / nw) : '—'}</td>
         <td class="actions"><button class="icon" title="Achat / vente" data-act="invTrade" data-id="${h.id}">⇄</button><button class="icon" title="Modifier" data-act="invEdit" data-id="${h.id}">✎</button><button class="icon" title="Supprimer" data-act="invDel" data-id="${h.id}">✕</button></td></tr>`; }).join('')).join('')}
       </tbody></table></div>` : empty('Aucun placement. Ajoutez vos comptes-titres, PEA, assurance-vie, livrets, crypto…')}
@@ -1320,7 +1345,7 @@ function renderInv() {
       <div class="card"><h3>Répartition par compte</h3>${hs.length ? donut(group(h => acctOf(h.acct).name)) : empty('—')}</div>
       <div class="card"><h3>Répartition par banque / institut</h3>${hs.length ? donut(group(h => acctOf(h.acct).bank || 'Non renseigné')) : empty('—')}</div>
     </div>
-    <div class="card" style="margin-top:16px"><h3>Historique de la valeur</h3>${snaps.length > 1 ? lineChart({ labels: snaps.map(s => fmtDate(s.date)), series: [{ name: 'Valeur totale', color: 'var(--accent)', values: snaps.map(s => s.total) }] }) : empty('Un point est enregistré automatiquement chaque jour où vous modifiez vos placements.')}</div>`;
+    <div class="card" style="margin-top:16px"><h3>Historique de la valeur</h3>${snaps.length > 1 ? lineChart({ labels: snaps.map(s => fmtDate(s.date)), series: [{ name: 'Valeur totale', color: 'var(--accent)', values: snaps.map(s => B(s.total)) }] }) : empty('Un point est enregistré automatiquement chaque jour où vous modifiez vos placements.')}</div>`;
 }
 const findH = id => S.holdings.find(h => h.id === id);
 function invModal(h) {
@@ -1345,7 +1370,7 @@ function tradeModal(h) {
   openModal('Achat / vente — ' + h.name, `
     <form data-form="invTrade" class="stack">
       <input type="hidden" name="id" value="${esc(h.id)}">
-      <p class="muted" style="margin:0">Détenu : ${esc(NUM.format(h.qty))} à ${esc(fmtEur(h.pru))} de PRU. Un achat recalcule le PRU moyen ; une vente enregistre la plus-value réalisée.</p>
+      <p class="muted" style="margin:0">Détenu : ${esc(NUM.format(h.qty))} à ${esc(fmtCur(h.pru, 'EUR'))} de PRU. Un achat recalcule le PRU moyen ; une vente enregistre la plus-value réalisée.</p>
       <div class="row"><label>Opération<select name="side"><option value="buy">Achat / versement</option><option value="sell">Vente / retrait</option></select></label>
         <label>Date<input type="date" name="date" value="${today()}" required></label></div>
       <div class="row"><label>Quantité<input type="number" name="qty" step="any" min="0" required></label>
@@ -1401,14 +1426,14 @@ function yearProjection() {
     const h = projHyp(a), r = h.rate / 100, c = h.contrib, cur = currentValue(a);
     let v = cur * Math.pow(1 + r, f) + c * f; const fut = [round2(v)];
     for (let i = 1; i <= H; i++) { v = v * (1 + r) + c * (1 + r / 2); fut.push(round2(v)); } // versements étalés sur l'année
-    return { a, h, cur, past: pastYears.map(y => pastValue(a, y)), fut };
+    return { a, h, cur, c: a.currency || 'EUR', past: pastYears.map(y => pastValue(a, y)), fut };
   });
   return { Y, since, pastYears, futYears, rows };
 }
 function projFoot(P) {
-  const pastTot = P.pastYears.map((_, i) => P.rows.reduce((s, r) => s + (r.past[i] ? r.past[i].v : 0), 0));
+  const pastTot = P.pastYears.map((_, i) => P.rows.reduce((s, r) => s + (r.past[i] ? toBase(r.past[i].v, r.c) : 0), 0));
   const pastMissing = P.pastYears.map((_, i) => P.rows.some(r => !r.past[i]));
-  const futTot = P.futYears.map((_, i) => P.rows.reduce((s, r) => s + r.fut[i], 0));
+  const futTot = P.futYears.map((_, i) => P.rows.reduce((s, r) => s + toBase(r.fut[i], r.c), 0));
   return { pastTot, pastMissing, futTot, html: `<tr><th>Total</th>${pastTot.map((v, i) => `<th class="num"${pastMissing[i] ? ' title="Certains comptes n’ont pas de valeur pour cette année"' : ''}>${esc(fmtEur(v, false))}${pastMissing[i] ? '<span class="muted">*</span>' : ''}</th>`).join('')}${futTot.map(v => `<th class="num">${esc(fmtEur(v, false))}</th>`).join('')}</tr>` };
 }
 function projChart(P, F) {
@@ -1421,9 +1446,9 @@ function renderProjTable() {
   el.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th>
       ${P.pastYears.map(y => `<th class="num">${y}</th>`).join('')}
       ${P.futYears.map((y, i) => `<th class="num" style="font-style:italic">${y}${i === 0 ? ' <span class="muted small">(est.)</span>' : ''}</th>`).join('')}</tr></thead>
-    <tbody>${P.rows.map(r => `<tr><td class="nowrap"><b>${esc(r.a.name)}</b><div class="muted small">${esc([r.a.type, r.a.bank].filter(Boolean).join(' · '))}</div></td>
+    <tbody>${P.rows.map(r => `<tr><td class="nowrap"><b>${esc(r.a.name)}</b><div class="muted small">${esc([r.a.type, r.a.bank, r.c !== 'EUR' ? r.c : ''].filter(Boolean).join(' · '))}</div></td>
       ${r.past.map((p, i) => `<td class="num"><input class="inline-num" type="number" step="0.01" value="${p && p.src === 'saisi' ? p.v : ''}" placeholder="${p ? Math.round(p.v) : '—'}" title="${p && p.src === 'pointages' ? 'Calculé à partir des pointages — saisissez une valeur pour la remplacer' : 'Solde au 31/12/' + P.pastYears[i]}" data-chg="projHist" data-acct="${esc(r.a.id)}" data-year="${P.pastYears[i]}"></td>`).join('')}
-      ${r.fut.map(v => `<td class="num" style="font-style:italic">${esc(fmtEur(v, false))}</td>`).join('')}</tr>`).join('')}</tbody>
+      ${r.fut.map(v => `<td class="num" style="font-style:italic">${esc(fmtCur(v, r.c, false))}</td>`).join('')}</tr>`).join('')}</tbody>
     <tfoot id="projFoot">${F.html}</tfoot></table></div>
     <p class="muted small">Années passées : saisissez le solde de chaque compte au 31 décembre (les valeurs grisées sont calculées à partir de vos pointages). <span class="muted">*</span> = des comptes n’ont pas de valeur cette année-là.</p>`;
   $('#projChart').innerHTML = projChart(P, F);
@@ -1439,7 +1464,7 @@ function renderProjAccounts() {
     </div>
     <div class="card"><h3>Hypothèses par compte</h3>
       <div class="table-wrap"><table class="tbl"><thead><tr><th>Compte</th><th>Type</th><th class="num">Valeur actuelle</th><th class="num">Rendement (%/an)</th><th class="num">Versement net (€/an)</th></tr></thead><tbody>
-      ${P.rows.map(r => `<tr><td>${esc(r.a.name)}</td><td>${esc(r.a.type)}</td><td class="num">${money(r.cur, false)}</td>
+      ${P.rows.map(r => `<tr><td>${esc(r.a.name)}</td><td>${esc(r.a.type)}</td><td class="num">${money(r.cur, false, r.c)}</td>
         <td class="num"><input class="inline-num" type="number" step="0.1" value="${r.h.rate}" data-chg="projHyp" data-acct="${esc(r.a.id)}" data-k="rate"></td>
         <td class="num"><input class="inline-num" type="number" step="100" value="${r.h.contrib}" data-chg="projHyp" data-acct="${esc(r.a.id)}" data-k="contrib"></td></tr>`).join('')}
       </tbody></table></div>
@@ -1460,7 +1485,7 @@ function renderProj() {
           ${SIM_FIELDS.map(([k, l, min, step]) => `<label>${esc(l)}<input type="number" name="${k}" min="${min}" step="${step}" value="${p[k]}" data-inp="sim"></label>`).join('')}
           <label class="inline full"><input type="checkbox" name="real" ${p.real ? 'checked' : ''} data-inp="sim"> Afficher en euros d’aujourd’hui (corrigé de l’inflation)</label>
           <div class="full presets">
-            <button class="btn" data-act="simUseNW">Capital = mon patrimoine (${esc(fmtEur(netWorth(), false))})</button>
+            <button class="btn" data-act="simUseNW">Capital = mon patrimoine (${esc(fmtEur(toBase(netWorth()), false))})</button>
             <button class="btn" data-act="simUseAvg">Versement = mon épargne moyenne (${esc(fmtEur(Math.max(0, avg.net), false))})</button>
           </div>
         </div>
@@ -1559,6 +1584,7 @@ function renderSettings() {
           <li>Les catégories, règles, budgets, opérations et placements se modifient sur le PC.</li>
           <li>Verrouiller (🔒) efface les données de la mémoire. Verrouillage automatique après ${S.settings.lockMinutes} min d’inactivité.</li>
         </ul>
+        <label style="max-width:320px">Devise d’affichage (pour cette consultation)<select data-chg="baseCur">${curOptions(BASE())}</select></label>
       </div>`;
     return;
   }
@@ -1628,6 +1654,16 @@ function renderSettings() {
         ${S.rules.map(r => `<tr><td><code>${esc(r.kw)}</code></td><td><span class="dot" style="background:${catById(r.cat).color}"></span>${catLabel(r.cat, r.sub)}</td><td class="actions"><button class="icon" data-act="ruleDel" data-id="${r.id}" title="Supprimer">✕</button></td></tr>`).join('')}
         </tbody></table></div>
       </div>
+    </div>
+
+    <div class="card" style="margin-top:16px"><h3>💱 Devises</h3>
+      <div class="row">
+        <label>Devise d’affichage des résultats agrégés<select data-chg="baseCur">${curOptions(BASE())}</select></label>
+        <p class="muted small" style="flex:2 1 260px;margin:0">Totaux, tableau de bord, analyse, projections et investissements sont convertis dans cette devise. Les opérations et soldes d’un compte restent dans la devise du compte.</p>
+      </div>
+      <h3 style="margin-top:16px">Taux de change</h3>
+      <p class="muted small" style="margin-top:-6px">L’application ne se connectant à aucun service, les taux sont saisis à la main (par exemple depuis le site de votre banque). ${S.settings.fxDate ? 'Dernière mise à jour : <b>' + fmtDate(S.settings.fxDate) + '</b>.' : '<b class="warn">Taux par défaut, indicatifs : mettez-les à jour.</b>'}</p>
+      <div class="budget-grid">${CURRENCIES.filter(([c]) => c !== 'EUR').map(([c, n]) => `<label title="${esc(n)}"><span>1 ${c} =</span><span><input type="number" step="any" min="0" value="${S.settings.fx[c]}" data-chg="fxRate" data-cur="${c}"> €</span></label>`).join('')}</div>
     </div>
     <div class="card" style="margin-top:16px"><h3>Données</h3>
       <div class="presets"><button class="btn" data-act="demo">Charger des données de démonstration</button><button class="btn danger" data-act="wipe">Effacer / oublier les données</button></div>
@@ -1772,7 +1808,7 @@ const ACT = {
   invEdit: el => invModal(findH(el.dataset.id)),
   invTrade: el => tradeModal(findH(el.dataset.id)),
   invDel: el => { const h = findH(el.dataset.id); if (h && confirm(`Supprimer « ${h.name} » ?`)) { S.holdings = S.holdings.filter(x => x !== h); upsertSnapshot(); save(); renderInv(); } },
-  simUseNW: () => { S.sim.initial = Math.round(netWorth()); save(); renderProj(); },
+  simUseNW: () => { S.sim.initial = Math.round(toBase(netWorth())); save(); renderProj(); },
   simUseAvg: () => { S.sim.monthly = Math.max(0, Math.round(avgMonthly(6).net)); save(); renderProj(); },
   simPreset: el => { S.sim.ret = +el.dataset.ret; S.sim.vol = +el.dataset.vol; save(); renderProj(); },
   exportVault: async () => {
@@ -1785,8 +1821,8 @@ const ACT = {
   exportCsv: () => {
     if (!confirm('Ce fichier CSV ne sera PAS chiffré. Continuer ?')) return;
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = ['Date dépense;Date prélèvement;Compte;Libellé simplifié;Libellé original;Montant;Catégorie;Sous-catégorie;Compte d’origine;Compte de destination;Note'].concat([...S.transactions].sort((a, b) => a.date.localeCompare(b.date))
-      .map(t => [t.date, t.pdate, q(acctName(t.acct)), q(t.label), q(t.rawLabel), String(t.amount).replace('.', ','), q(catById(t.cat).name), q(t.sub), q(txFrom(t) ? acctName(txFrom(t)) : ''), q(txTo(t) ? acctName(txTo(t)) : ''), q(t.note)].join(';')));
+    const lines = ['Date dépense;Date prélèvement;Compte;Libellé simplifié;Libellé original;Montant;Devise;Catégorie;Sous-catégorie;Compte d’origine;Compte de destination;Note'].concat([...S.transactions].sort((a, b) => a.date.localeCompare(b.date))
+      .map(t => [t.date, t.pdate, q(acctName(t.acct)), q(t.label), q(t.rawLabel), String(t.amount).replace('.', ','), acctCur(t.acct), q(catById(t.cat).name), q(t.sub), q(txFrom(t) ? acctName(txFrom(t)) : ''), q(txTo(t) ? acctName(txTo(t)) : ''), q(t.note)].join(';')));
     download(`operations-${today()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
   },
   demo: () => {
@@ -1856,10 +1892,13 @@ const CHG = {
   },
   txSetSub: el => { const t = findTx(el.dataset.id); if (!t) return; t.sub = el.value; save(); offerRule(t, 'Sous-catégorie modifiée.'); },
   // formulaire (opération ou règle) : la liste des sous-catégories suit la catégorie choisie
+  acctType: el => { el.form.querySelector('[data-cur]').hidden = typeFamily(el.value) !== 'Comptes de dépôt'; },
   formCat: el => { el.form.elements.sub.innerHTML = subOptions(el.value || 'none', ''); },
   catSubs: el => { const c = catById(el.dataset.id); c.subs = [...new Set(el.value.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 50); el.value = c.subs.join(', '); save(); },
   budget: el => { const v = num(el.value); if (v > 0) S.budgets[el.dataset.id] = v; else delete S.budgets[el.dataset.id]; save(); },
   invPrice: el => { const h = findH(el.dataset.id); if (!h) return; h.price = Math.max(0, num(el.value)); h.updated = today(); upsertSnapshot(); save(); renderInv(); },
+  baseCur: el => { S.settings.baseCur = el.value; save(); toast('Résultats agrégés affichés en ' + el.value + '.'); },
+  fxRate: el => { const v = num(el.value); if (v > 0) { S.settings.fx[el.dataset.cur] = v; S.settings.fxDate = today(); save(); } else el.value = S.settings.fx[el.dataset.cur]; },
   lockMinutes: el => { S.settings.lockMinutes = +el.value; save(); },
   catColor: el => { const c = catById(el.dataset.id); c.color = safeColor(el.value); save(); },
   catName: el => { const c = catById(el.dataset.id); const v = el.value.trim(); if (v) { c.name = v; save(); } else el.value = c.name; },
@@ -1984,7 +2023,7 @@ const SUBMIT = {
   },
   acctSave(f) {
     const e = f.elements, name = e.name.value.trim(); if (!name) return;
-    const data = { name, bank: e.bank.value.trim(), type: e.type.value, note: e.note.value.trim() };
+    const data = { name, bank: e.bank.value.trim(), type: e.type.value, currency: typeFamily(e.type.value) === 'Comptes de dépôt' ? e.currency.value : 'EUR', note: e.note.value.trim() };
     const a = S.accounts.find(x => x.id === e.id.value);
     if (a) Object.assign(a, data); else S.accounts.push(newAccount(name, data));
     closeModal(); save(); renderAccounts();
@@ -2031,7 +2070,7 @@ const SUBMIT = {
     } else {
       if (q > h.qty + 1e-9) { toast('Quantité vendue supérieure à la quantité détenue.', 'err'); return; }
       const g = q * (p - h.pru) - fees; h.realized = (h.realized || 0) + g; h.qty = Math.max(0, h.qty - q);
-      toast(`Plus-value réalisée : ${fmtEur(g)}`);
+      toast(`Plus-value réalisée : ${fmtCur(g, 'EUR')}`);
     }
     if (e.setPrice.checked) { h.price = p; h.updated = today(); }
     (h.ops = h.ops || []).push({ date: e.date.value, side: e.side.value, qty: q, price: p, fees });
@@ -2046,7 +2085,7 @@ const SUBMIT = {
 
 // En consultation, seules la navigation et les simulations (non enregistrées) sont permises.
 const RO_ACT = new Set(['tab', 'lock', 'discret', 'closeModal', 'lockHome', 'simUseNW', 'simUseAvg', 'simPreset', 'acctShowTx', 'acctShowInv', 'anAll', 'anNone']);
-const RO_CHG = new Set(['setMonth', 'txMonth', 'txCat', 'txAcct', 'txRaw', 'invAcct', 'viewFile', 'projYears', 'projSince', 'anFrom', 'anTo', 'anGran', 'anKind', 'anAcct', 'anSubs', 'anCat']);
+const RO_CHG = new Set(['baseCur', 'setMonth', 'txMonth', 'txCat', 'txAcct', 'txRaw', 'invAcct', 'viewFile', 'projYears', 'projSince', 'anFrom', 'anTo', 'anGran', 'anKind', 'anAcct', 'anSubs', 'anCat']);
 const roBlocked = () => { toast('Lecture seule : les modifications se font sur le PC.'); };
 document.addEventListener('click', e => {
   if (e.target.id === 'modal') { closeModal(); return; }
